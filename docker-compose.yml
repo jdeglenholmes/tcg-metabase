@@ -1,0 +1,30 @@
+services:
+# 1. Database (storage) for pokemon-sync
+  poke_db:
+    image: postgres:15
+    container_name: poke_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER} # Fetch username from local .env variable
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# 2. Streamlit UI (frontend)
+  dashboard: # Add streamlit service
+    build: .
+    container_name: poke_dashboard
+    environment:
+    - DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@poke_db:5432/${POSTGRES_DB}
+    ports:
+      - "8501:8501"
+    depends_on:
+      - poke_db
+       # Overrride Dockerfile ENTRYPOINT to run Streamlit
+    command: ["streamlit", "run", "src/dashboard/app.py", "--server.address=0.0.0.0"]
+
+volumes:
+  postgres_data:

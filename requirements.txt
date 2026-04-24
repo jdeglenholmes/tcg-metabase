@@ -1,0 +1,12 @@
+dotenv
+pandas
+polars
+pyarrow
+sqlalchemy
+psycopg2-binary
+python-dotenv
+requests
+streamlit # required for app UI
+httpx # a more modern version of requests 
+plotly
+time
