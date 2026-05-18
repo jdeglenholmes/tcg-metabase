@@ -1,7 +1,7 @@
 services:
 # 1. Database (storage) for pokemon-sync
   poke_db:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: poke_postgres
     restart: always
     environment:
@@ -13,12 +13,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-# 2. Streamlit UI (frontend)
+# 2. Streamlit UI (frontend) / Python execution container
   dashboard: # Add streamlit service
     build: .
     container_name: poke_dashboard
     environment:
     - DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@poke_db:5432/${POSTGRES_DB}
+    - HF_TOKEN=${HF_TOKEN}
     ports:
       - "8501:8501"
     depends_on:

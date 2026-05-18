@@ -1,13 +1,16 @@
-#Python/defines schemas for sets, cards and video game series
-
 from sqlalchemy import text
 from src.database.connection import get_engine
 
 def initialise_poke_schemas():
     engine = get_engine() # Save connection blueprints to engine obj
 
-    # Three distinct SQL queries for granular error handling
+    # SQL statements executed in sequence 
     sql_queries = [
+    # 0. Vector Extension Initialization (required for vector dtype)
+    """
+    CREATE EXTENSION IF NOT EXISTS vector;
+    """,
+
     # 1. Card Sets Table: trends across different tcg releases
     """
     CREATE TABLE IF NOT EXISTS card_sets (
@@ -18,8 +21,9 @@ def initialise_poke_schemas():
         total_cards INT
     );
     """,
+
     # 2. Card Object Table: granular card detail
-   """
+    """
     CREATE TABLE IF NOT EXISTS tcg_cards (
         card_id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(100),
@@ -28,9 +32,21 @@ def initialise_poke_schemas():
         set_id VARCHAR(50) REFERENCES card_sets(set_id),
         variants JSONB,  -- Stores holo/normal/first-edition flags
         market_price FLOAT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        -- NEW Image Discovery & Clustering Fields
+        image_url TEXT,
+        art_style VARCHAR(50),       /* e.g. minimalist, watercolour, anime */
+        has_trainer BOOLEAN,         /* True if partner card, False if trainerless */
+        card_aesthetic VARCHAR(50),  /* e.g. whimsical, kinetic, chaotic */ 
+        pokemon_count INT,           /* Track cards featuring multiple Pokemon */
+        cameo_pokemon TEXT[],        /* Array of background/unnamed Pokemon */
+
+        -- 512 dimensions matches standard CLIP ViT-B/32 models
+        image_embedding vector(512)
     );
     """,
+
     # 3. VGC Pokemon Stats Table: usage data for each pokemon
     """
     CREATE TABLE IF NOT EXISTS vgc_stats (
@@ -40,14 +56,22 @@ def initialise_poke_schemas():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """,
+
     # 4. Combined View Table: centralised 'truth' of all three tables
     """
     CREATE OR REPLACE VIEW meta_trends AS
         SELECT
+            tcg.card_id,
             tcg.name as card_name,
             tcg.illustrator as card_illustrator,
             tcg.rarity as card_rarity,
             tcg.variants as card_variants,
+            tcg.image_url,
+            tcg.art_style,             
+            tcg.has_trainer,              
+            tcg.card_aesthetic,         
+            tcg.pokemon_count,              
+            tcg.cameo_pokemon,   
             tcg_set.name as set_name,
             tcg_set.release_date as set_release_date,
             tcg.market_price as card_price,

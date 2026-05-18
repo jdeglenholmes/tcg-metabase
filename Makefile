@@ -11,6 +11,7 @@ help:
 	@echo "TCG Poke Research & ETL Tool"
 	@echo "----------------------------"
 	@echo "Usage examples:"
+	@echo "	 make db-reset						- Drop and re-initialise database"
 	@echo "  make discover                		- Show summary of all sets (Fast)"
 	@echo "  make discover RARITY=True    		- Show summary with Rarity Ratio (Slower API)"
 	@echo "  make discover SET_NAME=\"Silver\"    	- Research a specific set"
@@ -18,6 +19,20 @@ help:
 	@echo "  make ingest SET_NAME=\"Silver\"    	- Run ETL for a specific set"
 	@echo "  make ingest                  		- Run ETL for ALL matching sets"
 
+# Drop and re-initialize the database schema cleanly
+db-reset:
+	@echo "🛑 Stopping running services and clearing stale containers..."
+	docker compose down
+	@echo "🐘 Spinning up Postgres instance in background..."
+	docker compose up -d poke_db
+	@echo "⏳ Giving Postgres a moment to wake up..."
+	@sleep 3
+	@echo "⚠️  Dropping old views and tables cleanly..."
+	docker exec -i poke_postgres psql -U $$(grep POSTGRES_USER .env | cut -d '=' -f2) -d $$(grep POSTGRES_DB .env | cut -d '=' -f2) -c "DROP VIEW IF EXISTS meta_trends CASCADE; DROP TABLE IF EXISTS tcg_cards CASCADE;"
+	@echo "🚀 Running schema initialization runner against the live database..."
+	docker compose run --rm dashboard python -c "from src.database.schema import initialise_poke_schemas; initialise_poke_schemas()"
+	@echo "✅ Databbase schema reset successfully with pgvector! Ready for 'make ingest'."
+	
 # Just show the table, no prompt, includes Rarity Ratio toggle
 discover:
 	python main.py --set_name "$(SET_NAME)" --series "$(SERIES)" \
