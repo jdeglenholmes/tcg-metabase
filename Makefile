@@ -28,11 +28,15 @@ db-reset:
 	@echo "⏳ Giving Postgres a moment to wake up..."
 	@sleep 3
 	@echo "⚠️  Dropping old views and tables cleanly..."
-	docker exec -i poke_postgres psql -U $$(grep POSTGRES_USER .env | cut -d '=' -f2) -d $$(grep POSTGRES_DB .env | cut -d '=' -f2) -c "DROP VIEW IF EXISTS meta_trends CASCADE; DROP TABLE IF EXISTS tcg_cards CASCADE;"
+	@docker exec -i poke_postgres psql -U $$(grep POSTGRES_USER .env | cut -d '=' -f2) -d $$(grep POSTGRES_DB .env | cut -d '=' -f2) -c "DROP VIEW IF EXISTS meta_trends CASCADE; DROP TABLE IF EXISTS tcg_cards CASCADE; DROP TABLE IF EXISTS card_sets CASCADE;" 2> /dev/null
 	@echo "🚀 Running schema initialization runner against the live database..."
-	docker compose run --rm dashboard python -c "from src.database.schema import initialise_poke_schemas; initialise_poke_schemas()"
-	@echo "✅ Databbase schema reset successfully with pgvector! Ready for 'make ingest'."
+	docker compose run --rm -e PGOPTIONS="-c client_min_messages=warning" dashboard python -c "from src.database.schema import initialise_poke_schemas; initialise_poke_schemas()"
+	@echo "✅ Database schema reset successfully with pgvector! Ready for 'make ingest'."
 	
+# Audit the CLIP embedding engine classifications inside the terminal
+validate:
+	docker compose run --rm dashboard python -m src.ingest.run --validate
+
 # Just show the table, no prompt, includes Rarity Ratio toggle
 discover:
 	python main.py --set_name "$(SET_NAME)" --series "$(SERIES)" \

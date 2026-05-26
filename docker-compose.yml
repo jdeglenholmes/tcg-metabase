@@ -4,6 +4,7 @@ services:
     image: pgvector/pgvector:pg15
     container_name: poke_postgres
     restart: always
+    command: ["postgres", "-c", "client_min_messages=WARNING"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER} # Fetch username from local .env variable
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

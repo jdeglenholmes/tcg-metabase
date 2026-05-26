@@ -21,4 +21,12 @@ def get_engine():
         port = "5433" # The port we mapped in docker-compose.yml
 
     db_url = f"postgresql://{db_user}:{db_pass}@{host}:{port}/{db_name}"
-    return create_engine(db_url)
+    
+    # Pass connection arguments to the DB driver to explicitly suppress
+    # HINT, DETAIL, and NOTICE messages (like the collation mismatch logs)
+    return create_engine(
+        db_url,
+        connect_args={
+            "options": "-c client_min_messages=warning"
+        }
+    )

@@ -21,10 +21,17 @@ def extract_image_features(image_base_url: str) -> list:
         return None
         
     try:
-        target_url = f"{image_base_url}/low.webp"
+        # TCGdex fix: Strip any trailing slashes before applying format extensions
+        base_clean = image_base_url.rstrip('/')
+        target_url = f"{base_clean}/low.webp"
+        
         response = httpx.get(target_url, timeout=5.0)
         if response.status_code != 200:
-            return None
+            # Fallback check for missing file format variations
+            target_url = f"{base_clean}/low.png"
+            response = httpx.get(target_url, timeout=5.0)
+            if response.status_code != 200:
+                return None
             
         img = Image.open(BytesIO(response.content)).convert("RGB")
         inputs = processor(images=img, return_tensors="pt")
@@ -32,12 +39,20 @@ def extract_image_features(image_base_url: str) -> list:
         with torch.no_grad():
             outputs = model.get_image_features(**inputs)
             
+            # --- IRONCLAD HUGGINGFACE OUTPUT UNPACKING ---
             if hasattr(outputs, 'image_embeds'):
                 tensor_features = outputs.image_embeds
-            else:
+            elif hasattr(outputs, 'pooler_output'):
+                tensor_features = outputs.pooler_output
+            elif hasattr(outputs, 'last_hidden_state'):
+                tensor_features = outputs.last_hidden_state[:, 0, :]
+            elif isinstance(outputs, torch.Tensor):
                 tensor_features = outputs
+            else:
+                # Direct type extraction fallback
+                tensor_features = torch.tensor(outputs)
             
-            # Safe L2 Normalization
+            # Bulletproof L2 Normalization using native functional math
             normalized_features = F.normalize(tensor_features, p=2, dim=-1)
             
         return normalized_features.cpu().numpy()[0].tolist()
@@ -45,15 +60,55 @@ def extract_image_features(image_base_url: str) -> list:
         print(f"      ⚠️ Feature extraction skipped for {image_base_url}: {e}")
         return None
 
-# --- VERIFY THIS EXACT NAME AND SPELLING ---
 def extract_clustering_labels(image_base_url: str, card_name: str) -> dict:
     """
-    Analyzes visual traits using zero-shot inference or metadata rulesets.
+    Uses zero-shot classification via CLIP to dynamically analyze visual traits.
     """
-    return {
-        "art_style": "anime",            
-        "has_trainer": False,            
-        "card_aesthetic": "whimsical",   
-        "pokemon_count": 1,              
-        "cameo_pokemon": []              
-    }
+    if not image_base_url:
+        return {"art_style": "unknown", "has_trainer": False, "card_aesthetic": "unknown", "pokemon_count": 1, "cameo_pokemon": []}
+
+    try:
+        base_clean = image_base_url.rstrip('/')
+        target_url = f"{base_clean}/low.webp"
+        
+        # 1. Download image asset
+        response = httpx.get(target_url, timeout=5.0)
+        if response.status_code != 200:
+            return {"art_style": "unknown", "has_trainer": False, "card_aesthetic": "unknown", "pokemon_count": 1, "cameo_pokemon": []}
+            
+        img = Image.open(BytesIO(response.content)).convert("RGB")
+        
+        # 2. Define the classification hypothesis spaces
+        aesthetic_labels = ["whimsical cartoon", "dark eerie illustration", "vintage pixel art", "realistic oil painting", "geometric minimalist"]
+        art_style_labels = ["classic anime", "3D render", "水彩画 watercolour", "sketch line-art"]
+        
+        # 3. Run zero-shot classification for Aesthetics
+        inputs = processor(text=aesthetic_labels, images=img, return_tensors="pt", padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        
+        # Calculate probabilities via softmax
+        logits_per_image = outputs.logits_per_image
+        probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
+        best_aesthetic = aesthetic_labels[probs.argmax()].split()[0] # Grab first descriptor word
+        
+        # 4. Run zero-shot classification for Art Styles
+        inputs_style = processor(text=art_style_labels, images=img, return_tensors="pt", padding=True)
+        with torch.no_grad():
+            outputs_style = model(**inputs_style)
+            
+        probs_style = outputs_style.logits_per_image.softmax(dim=-1).cpu().numpy()[0]
+        best_style = art_style_labels[probs_style.argmax()].split()[-1]
+
+        # Rule-based heuristics fallback for simple tags
+        has_trainer = "trainer" in card_name.lower() or "supporter" in card_name.lower()
+
+        return {
+            "art_style": best_style,            
+            "has_trainer": has_trainer,            
+            "card_aesthetic": best_aesthetic,   
+            "pokemon_count": 1,              
+            "cameo_pokemon": []              
+        }
+    except Exception as e:
+        return {"art_style": "error", "has_trainer": False, "card_aesthetic": "error", "pokemon_count": 1, "cameo_pokemon": []}

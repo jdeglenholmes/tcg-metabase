@@ -96,13 +96,39 @@ def get_rarity_ratio(set_id: str):
         counts = Counter(sample_rarities)
         return " | ".join([f"{r}: {round((c/total)*100)}%" for r, c in counts.items()])
     
-def fetch_set_list(set_id: str):
-    url = f"https://api.tcgdex.net/v2/en/sets/{set_id}"
+import httpx
+
+def fetch_set_list(set_id: str = "") -> list:
+    """
+    Fetches the TCG set data.
+    - If set_id is empty or missing, returns a list of all available global sets.
+    - If set_id is provided, returns the detailed card manifest list for that specific set.
+    """
+    set_id_clean = set_id.strip() if set_id else ""
+    
+    # Dynamically toggle between the global sets index and a specific set summary
+    if not set_id_clean:
+        url = "https://api.tcgdex.net/v2/en/sets"
+    else:
+        url = f"https://api.tcgdex.net/v2/en/sets/{set_id_clean}"
+        
     try:
-        response = httpx.get(url)
-        response.raise_for_status() # Check for 404/500 errors
-        return response.json().get('cards', [])
-    except Exception:
+        response = httpx.get(url, timeout=10.0)
+        response.raise_for_status()
+        
+        payload = response.json()
+        
+        # The global list returns an array directly, whereas a specific set returns a dictionary 
+        # where the card array lives under the 'cards' key.
+        if isinstance(payload, list):
+            return payload
+        return payload.get('cards', [])
+        
+    except httpx.HTTPStatusError as e:
+        print(f"❌ HTTP Error fetching TCG data: {e.response.status_code} for URL: {url}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected network or parsing exception in discovery: {e}")
         return []
 
 def fetch_card_details(card_id: str):

@@ -7,10 +7,14 @@ from src.utils.discovery import fetch_set_list, fetch_card_details
 from src.ingest.enrichment import extract_image_features, extract_clustering_labels
 
 def run_tcg_etl_pipeline(target_sets: list, batch_size: int = 10):
-    """Systematic ingestion logic with manual user confirmation and batch tracking."""
+    """
+    Systematic ingestion logic with manual user confirmation, visual progress metrics,
+    and automated multimodal AI attribute enrichment.
+    """
+    # Force schema and pgvector extension verification before beginning transactional workflows
     initialise_poke_schemas()
     
-    # 1. Filter out sets that have already been handled to calculate accurate pending work
+    # 1. Calculate an accurate manifest of pending sets to prevent duplicate work
     pending_sets = [s for s in target_sets if not is_set_already_ingested(s['id'])]
     
     if not pending_sets:
@@ -37,7 +41,7 @@ def run_tcg_etl_pipeline(target_sets: list, batch_size: int = 10):
         
     print("\n🚀 Starting pipeline ingestion...")
 
-    # 4. Core Processing Loop
+    # 4. Core Multimodal Processing Loop
     for target_set in pending_sets:
         set_id = target_set['id']
         set_name = target_set['name']
@@ -49,43 +53,46 @@ def run_tcg_etl_pipeline(target_sets: list, batch_size: int = 10):
         successful_uploads = 0
         failed_uploads = 0
         
-        # Wrapped with tqdm for real-time visual progress frames
+        # Wrapped with tqdm for real-time visual progress frames in terminal
         with tqdm(total=total_cards, desc=f"📦 Progress [{set_name}]", unit="card", leave=True) as pbar:
             for index, card_summary in enumerate(cards, start=1):
                 try:
                     full_data = fetch_card_details(card_summary['id'])
-                    print(f"DEBUG keys for {full_data.get('name')}: {list(full_data.keys())}")
                     image_base = full_data.get('image')
                     
                     if image_base:
-                        # Derive AI attributes and vectors
-                        embedding = extract_image_features(image_base)
-                        visual_tags = extract_clustering_labels(image_base, full_data['name'])
+                        # Clean base string to avoid edge-case double-slashes on CDN paths
+                        image_base_clean = image_base.rstrip('/')
                         
-                        full_data['image_url'] = f"{image_base}/high.webp"
+                        # Derive AI attributes and vectors via CLIP model towers
+                        embedding = extract_image_features(image_base_clean)
+                        visual_tags = extract_clustering_labels(image_base_clean, full_data.get('name', 'Unknown'))
+                        
+                        full_data['image_url'] = f"{image_base_clean}/high.webp"
                         full_data['image_embedding'] = embedding
                         full_data.update(visual_tags)
                     else:
                         full_data['image_url'] = None
                         full_data['image_embedding'] = None
                     
-                    # Upsert row to Postgres instance
+                    # Atomic upsert row step to local Postgres instance
                     upsert_card_data(full_data)
                     successful_uploads += 1
                     
                 except Exception as e:
                     failed_uploads += 1
-                    tqdm.write(f"   ❌ Error on card {card_summary.get('id', 'Unknown')}: {e}")
+                    tqdm.write(f"   ❌ Error processing card {card_summary.get('id', 'Unknown')}: {e}")
                 finally:
                     pbar.update(1)
                 
-                # Batch Milestone Logging (every 10 cards or at the end of a set)
+                # Batch Milestone Checkpoint Logs (prevents stdout overflow)
                 if index % batch_size == 0 or index == total_cards:
                     tqdm.write(
                         f"📢 [Batch Checkpoint] Card {index}/{total_cards} processed | "
                         f"Success: {successful_uploads} | Fail: {failed_uploads}"
                     )
                 
-                time.sleep(0.2) # Courteous sleep to limit API hammering
+                # Courteous sleep to limit upstream API hammering
+                time.sleep(0.2)
                 
         print(f"🏁 Finished processing {set_name}! Enriched {successful_uploads} cards.\n")
