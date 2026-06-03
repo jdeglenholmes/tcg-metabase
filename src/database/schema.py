@@ -43,7 +43,8 @@ def initialise_poke_schemas():
         cameo_pokemon TEXT[],        /* Array of background/unnamed Pokemon */
 
         -- 512 dimensions matches standard CLIP ViT-B/32 models
-        image_embedding vector(512)
+        image_embedding vector(512),
+        enrichment_status VARCHAR(20) DEFAULT 'pending'
     );
     """,
 

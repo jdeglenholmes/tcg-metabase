@@ -1,0 +1,11 @@
+sets:
+  # Canonincal mapping (for direct lookups)
+  "sv6pt5": "sv6pt5"
+  "sv3pt5": "sv3pt5"
+  
+  # Aliases (mapping legacy/human-readable names to canonical IDs)
+  "shrouded-fable": "sv6pt5"
+  "sv06pt5": "sv6pt5"
+  "151": "sv3pt5"
+  "sv03.5": "sv3pt5"
+  "sv3.5": "sv3pt5"

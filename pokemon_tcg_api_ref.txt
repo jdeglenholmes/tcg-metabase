@@ -1,0 +1,43 @@
+========================================================================
+POKÉMON TCG API - ACCURATE SET DEFINITIONS
+========================================================================
+
+--- SCARLET & VILET ERA (CURRENT) ---
+Set Name                       | API SET ID Token (Pass into SET=)
+------------------------------------------------------------------------
+S&V Base Set                   | sv01
+Paldea Evolved                 | sv02
+Obsidian Flames                | sv03
+151 (Special Set 3.5)          | me1
+Paradox Rift                   | sv04
+Paldean Fates (Special 4.5)    | paf
+Temporal Forces                | sv05
+Twilight Masquerade            | sv06
+Shrouded Fable (Special 6.5)   | sfa
+Stellar Crown                  | sv07
+Surging Sparks                 | sv08
+Prismatic Evolutions (S&V 8.5) | pre
+
+
+--- SWORD & SHIELD ERA (BACK-TESTING) ---
+Set Name                       | API SET ID Token (Pass into SET=)
+------------------------------------------------------------------------
+SWSH Base Set                  | swsh01
+Battle Styles                  | swsh05
+Chilling Reign                 | swsh06
+Evolving Skies                 | swsh07
+Celebrations (Special Set)     | cel25
+Fusion Strike                  | swsh08
+Brilliant Stars                | swsh09
+Astral Radiance                | swsh10
+Lost Origin                    | swsh11
+Silver Tempest                 | swsh12
+Crown Zenith (Main Set)        | swsh12
+Crown Zenith: Galarian Gallery | swsh12tg
+
+========================================================================
+VERIFICATION RUN:
+- Execute: 'make ingest SET=sfa'
+- This will successfully resolve the query parameter and download 
+  the complete Shrouded Fable payload straight into your tqdm uploader!
+========================================================================

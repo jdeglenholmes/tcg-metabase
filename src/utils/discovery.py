@@ -1,28 +1,19 @@
 import httpx
+import requests
 from thefuzz import fuzz
+import yaml
+import os
 from collections import Counter
 
 # Use a global timeout and client config
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
+# --- Discovery Logic ---
+
 def discover_tcg_sets(target_set_name: str = None, min_cards=80, series_name=None, fuzzy_threshold: int = 70):
-    """
-    Purpose:   
-        Fetches a list of Pokemon Trading Card Game (TCG) Sets from the TCGdex API based on user criertia.
-        
-    :params:
-        :target_set_name: TCG 'Set Name'.
-        :min_cards: 'Minimum Card Count'.
-        :series_name: TCG 'Series Name'.
-
-    Returns:
-        List of dictionaries containing matching TCG Sets.
-        When called without params 'ALL' TCG sets located at TCGdex are returned.
-    """
-
+    """Fetches a list of Pokemon TCG Sets from TCGdex API."""
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
-            # 1. Fetch series and sets
             series_resp = client.get("https://api.tcgdex.net/v2/en/series")
             series_resp.raise_for_status()
             series_data = sorted(series_resp.json(), key=lambda x: len(x['id']), reverse=True)
@@ -54,85 +45,101 @@ def discover_tcg_sets(target_set_name: str = None, min_cards=80, series_name=Non
                 score = fuzz.token_set_ratio(search_lower, name_lower)
                 is_match = score >= fuzzy_threshold
         
-        is_large_enough = total_cards >= min_cards
-        is_series_match = True if not series_name else s['series_name'] == series_name
-
-        if is_match and is_large_enough and is_series_match:
+        if is_match and (total_cards >= min_cards) and (not series_name or s['series_name'] == series_name):
             s['match_score'] = score
             results.append(s)
     
     return sorted(results, key=lambda x: x.get('match_score', 0) if target_set_name else x.get('name', ''), reverse=True)
 
-def get_rarity_ratio(set_id: str):
-    """Reuses connection to fetch card samples efficiently."""
-    with httpx.Client(timeout=TIMEOUT) as client:
-        # Fetch set list
-        set_url = f"https://api.tcgdex.net/v2/en/sets/{set_id}"
-        try:
-            resp = client.get(set_url)
-            resp.raise_for_status()
-            cards = resp.json().get('cards', [])
-        except:
-            return "No data"
+# --- Auto-Validator Bridge ---
 
-        if not cards: return "No data"
-        
-        sample_size = min(len(cards), 10)
-        sample_rarities = []
-        
-        for i in range(sample_size):
-            try:
-                card_id = cards[i]['id']
-                # Reusing the client connection here
-                card_resp = client.get(f"https://api.tcgdex.net/v2/en/cards/{card_id}")
-                card_resp.raise_for_status()
-                sample_rarities.append(card_resp.json().get('rarity', 'Unknown'))
-            except:
-                continue
-
-        if not sample_rarities: return "Unknown"
-
-        total = len(sample_rarities)
-        counts = Counter(sample_rarities)
-        return " | ".join([f"{r}: {round((c/total)*100)}%" for r, c in counts.items()])
+def validate_and_fix_id(discovery_id: str) -> str:
+    """Pings the Ingestion API and patches .5 to pt5 format."""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    ingestion_url = f"https://api.pokemontcg.io/v2/sets/{discovery_id}"
     
-import httpx
-
-def fetch_set_list(set_id: str = "") -> list:
-    """
-    Fetches the TCG set data.
-    - If set_id is empty or missing, returns a list of all available global sets.
-    - If set_id is provided, returns the detailed card manifest list for that specific set.
-    """
-    set_id_clean = set_id.strip() if set_id else ""
-    
-    # Dynamically toggle between the global sets index and a specific set summary
-    if not set_id_clean:
-        url = "https://api.tcgdex.net/v2/en/sets"
-    else:
-        url = f"https://api.tcgdex.net/v2/en/sets/{set_id_clean}"
-        
     try:
-        response = httpx.get(url, timeout=10.0)
-        response.raise_for_status()
-        
-        payload = response.json()
-        
-        # The global list returns an array directly, whereas a specific set returns a dictionary 
-        # where the card array lives under the 'cards' key.
-        if isinstance(payload, list):
-            return payload
-        return payload.get('cards', [])
-        
-    except httpx.HTTPStatusError as e:
-        print(f"❌ HTTP Error fetching TCG data: {e.response.status_code} for URL: {url}")
-        return []
-    except Exception as e:
-        print(f"❌ Unexpected network or parsing exception in discovery: {e}")
-        return []
+        response = httpx.get(ingestion_url, timeout=5.0, headers=headers)
+        if response.status_code == 200:
+            return discovery_id
+            
+        # Patch logic (e.g., sv06.5 -> sv6pt5)
+        if ".5" in discovery_id:
+            fixed_id = discovery_id.replace(".5", "pt5").replace("sv0", "sv") 
+            print(f"⏳ Validator: '{discovery_id}' not found, trying '{fixed_id}'...")
+            
+            check = httpx.get(f"https://api.pokemontcg.io/v2/sets/{fixed_id}", timeout=5.0, headers=headers)
+            if check.status_code == 200:
+                print(f"✅ Auto-Validator: Successfully patched to '{fixed_id}'")
+                return fixed_id
 
-def fetch_card_details(card_id: str):
-    url = f"https://api.tcgdex.net/v2/en/cards/{card_id}"
-    response = httpx.get(url)
-    return response.json()
+    except (httpx.ReadTimeout, httpx.ConnectError):
+        print(f"⚠️ Validator Warning: Network timed out. Returning original ID.")
+        return discovery_id
+        
+    return discovery_id
 
+def resolve_set_id(target_input: str) -> str:
+    """
+    The Bulletproof Pipeline:
+    1. Check Registry (YAML) for direct mapping.
+    2. If not found, use Fuzzy Matching (TCGdex) to find the ID.
+    3. Patch/Validate the ID against the PokemonTCG API.
+    """
+    
+    # STEP 1: Registry Lookup (Fastest)
+    registry = load_set_registry()
+    if target_input.lower() in registry:
+        print(f"✅ Found '{target_input}' in Registry.")
+        return registry[target_input.lower()]
+    
+    # STEP 2: Fuzzy Resolution (Fallback)
+    print(f"🔍 '{target_input}' not in registry. Searching TCGdex...")
+    results = discover_tcg_sets(target_set_name=target_input, min_cards=0)
+    
+    if not results:
+        print(f"❌ Could not resolve '{target_input}' via Fuzzy Match.")
+        return None
+    
+    if results:
+        discovered_id = results[0].get('id')
+        final_id = validate_and_fix_id(discovered_id)
+        print(f"\n💡 Hint: To speed up future runs, add this to config/sets.yaml:")
+        print(f"   {target_input.lower().replace(' ', '-')}: {final_id}")
+
+        return final_id
+    return None
+
+def load_set_registry():
+    config_path = os.path.join(os.path.dirname(__file__), '../../config/sets.yaml')
+    
+    if not os.path.exists(config_path):
+        print(f"❌ Error: Registry file not found at {config_path}")
+        return {}
+
+    with open(config_path, 'r') as f:
+        data = yaml.safe_load(f)
+        
+        # Add this check: if data is None (empty file), return an empty dict
+        if data is None:
+            return {}
+            
+        return data.get('sets', {})
+
+def get_normalized_db_id(input_id):
+    """
+    Returns the canonical database-compliant ID for a given input.
+    If the ID is unknown, it logs a warning and returns the input as-is.
+    """
+    if not input_id:
+        return None
+        
+    registry = load_set_registry()
+    # Normalize input and lookup in registry
+    normalized = registry.get(input_id.lower())
+    
+    if not normalized:
+        print(f"⚠️ Warning: '{input_id}' not found in registry. Using raw ID.")
+        return input_id
+        
+    return normalized
