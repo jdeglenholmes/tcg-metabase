@@ -25,7 +25,7 @@ help:
 	@echo "========================================================================"
 
 db-reset:
-	@echo "🛑 Refreshing Database Infrastructure..."
+	@echo "Refreshing Database Infrastructure..."
 	docker compose up -d $(DB_SERVICE)
 	@sleep 3
 	@echo "🧹 Cleaning tables..."
@@ -41,7 +41,7 @@ db-reset:
 	@echo "✅ Database ready."
 
 ingest:
-	@echo "🔍 Discovering ID for set: $(SET_NAME)..."
+	@echo "Starting TCG 'Set Name > ID' resolution: $(SET_NAME)..."
 	python -m src.ingest.run --ingest --set_name "$(SET_NAME)" --batch_size 20
 
 enrich:
@@ -51,5 +51,5 @@ recompute:
 	python -m src.ingest.run --recompute --set_name "$(SET_NAME)" --batch_size 16
 
 validate:
-	@echo "📊 Auditing set: $(SET_NAME)..."
+	@echo "Auditing TCG set: $(SET_NAME)..."
 	python -m src.ingest.run --validate --set_name "$(SET_NAME)"

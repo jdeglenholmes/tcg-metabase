@@ -1,5 +1,7 @@
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
 from src.database.connection import get_engine
+
 
 def initialise_poke_schemas():
     engine = get_engine() # Save connection blueprints to engine obj
@@ -38,7 +40,7 @@ def initialise_poke_schemas():
         image_url TEXT,
         art_style VARCHAR(50),       /* e.g. minimalist, watercolour, anime */
         has_trainer BOOLEAN,         /* True if partner card, False if trainerless */
-        card_aesthetic VARCHAR(50),  /* e.g. whimsical, kinetic, chaotic */ 
+        card_aesthetic JSONB,  /* e.g. whimsical, kinetic, chaotic */ 
         pokemon_count INT,           /* Track cards featuring multiple Pokemon */
         cameo_pokemon TEXT[],        /* Array of background/unnamed Pokemon */
 

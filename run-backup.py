@@ -12,45 +12,15 @@ from src.utils.discovery import resolve_set_id
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.metrics import classification_report, multilabel_confusion_matrix
 from sklearn.preprocessing import MultiLabelBinarizer
-import json
-# --- Helper to parse JSONB safely ---
-def parse_json_aesthetic(x):
-    # 1. If it's already a dict, return it
-    if isinstance(x, dict): 
-        return x
-    
-    # 2. If it's a string, try to parse it
-    if isinstance(x, str):
-        # Clean up any potential 'None' or empty strings
-        if not x or x.lower() == 'none':
-            return {}
-            
-        try:
-            # Try to parse as JSON (new format)
-            return json.loads(x)
-        except json.JSONDecodeError:
-            # Fallback: Parse as legacy CSV string (e.g., "minimalist,cinematic")
-            # We assign 1.0 confidence to legacy labels so they count as "Hits"
-            return {style.strip(): 1.0 for style in x.split(',') if style.strip()}
-            
-    # 3. Fallback for nulls or weird data
-    return {}
-
-def is_correct(true_styles, aesthetic_dict, k=3):
-    """Checks if any ground truth style exists in the model's Top K predictions."""
-    if not aesthetic_dict: return False
-    # Sort model output by confidence (the values in the dictionary)
-    top_k = sorted(aesthetic_dict.items(), key=lambda x: x[1], reverse=True)[:k]
-    top_k_styles = [style for style, score in top_k]
-    return any(style in true_styles for style in true_styles if style in top_k_styles)
 
 def run_cli_validation_suite(target_set_id=None, target_set_name=None):
     engine = get_engine()
     lookup_input = target_set_name if target_set_name else target_set_id
-    query_id = resolve_set_id(lookup_input) # Assuming this function exists in your src
+    query_id = resolve_set_id(lookup_input)
 
     print(f"\n🔍 Auditing Set ID: {query_id}")
 
+    
     query = f"SELECT card_id, name, card_aesthetic FROM tcg_cards WHERE set_id = '{query_id}'"
     with engine.connect() as conn:
         db_data = pd.read_sql_query(text(query), conn)
@@ -59,50 +29,60 @@ def run_cli_validation_suite(target_set_id=None, target_set_name=None):
         print(f"⚠️ No records found for set '{query_id}'.")
         return
 
-    # Map ground truth
     db_data['gt_info'] = db_data['card_id'].map(ground_truth)
+    
+    # Filter rows that have ground truth data
     val_data = db_data.dropna(subset=['gt_info']).copy()
     
-    # Parse JSONB and extract valid styles
-    val_data['aesthetic_dict'] = val_data['card_aesthetic'].apply(parse_json_aesthetic)
-    val_data['valid_styles'] = val_data['gt_info'].apply(lambda x: x.get('valid_styles', []))
+    # --- SANITIZATION ---
+    val_data = val_data.dropna(subset=['card_aesthetic'])
+    if val_data.empty:
+        print("⚠️ No ground truth matches found with valid aesthetic predictions.")
+        return
 
-    # --- 1. TOP-K ACCURACY REPORT ---
-    val_data['is_hit'] = val_data.apply(
-        lambda row: is_correct(row['valid_styles'], row['aesthetic_dict'], k=3), axis=1
+    # --- MULTI-LABEL PREPARATION ---
+    # 1. Extract the list of true styles
+    val_data['valid_styles'] = val_data['gt_info'].apply(lambda x: x.get('valid_styles', []))
+    
+    # 2. Wrap the AI's single prediction in a list to match the multi-label format
+    val_data['predicted_styles'] = val_data['card_aesthetic'].apply(
+        lambda x: str(x).split(',') if pd.notnull(x) and str(x).strip() != '' else []
     )
     
-    print(f"\n✅ Audit complete. Validated {len(val_data)} records.")
-    print(f"🎯 Top-3 Accuracy: {val_data['is_hit'].mean():.2%}")
-
-    # --- 2. LEGACY BINARY REPORT (For Confusion Matrices) ---
-    # We create a threshold (e.g. 0.20) to convert probabilities back to binary 
-    # just for the sake of the confusion matrix charts.
-    threshold = 0.20
+    print(f"\n✅ Audit complete. Validating {len(val_data)} labeled records.")
+    
+    # --- MULTI-LABEL BINARIZATION ---
     mlb = MultiLabelBinarizer()
     
-    # Binary predictions based on threshold
-    val_data['pred_binary'] = val_data['aesthetic_dict'].apply(
-        lambda d: [k for k, v in d.items() if v >= threshold]
-    )
-    
-    all_labels = val_data['valid_styles'].tolist() + val_data['pred_binary'].tolist()
+    # Fit the binarizer on the union of all known and predicted labels
+    all_labels = val_data['valid_styles'].tolist() + val_data['predicted_styles'].tolist()
     mlb.fit(all_labels)
     
+    # Transform lists into binary arrays (e.g., [0, 1, 0, 1, 0])
     y_true = mlb.transform(val_data['valid_styles'])
-    y_pred = mlb.transform(val_data['pred_binary'])
+    y_pred = mlb.transform(val_data['predicted_styles'])
 
-    print("\n--- 📊 PER-CLASS CONFUSION MATRICES (Threshold >= 20%) ---")
+    # --- 📈 CLASSIFICATION PERFORMANCE REPORT ---
+    print("\n--- 📈 MULTI-LABEL CLASSIFICATION REPORT ---")
+    print(classification_report(
+        y_true, 
+        y_pred, 
+        target_names=mlb.classes_, 
+        zero_division=0
+    ))
+    
+    # --- 📊 MULTI-LABEL CONFUSION MATRICES ---
+    # Because a card can be multiple things, we print a 2x2 matrix for EACH class.
+    print("\n--- 📊 PER-CLASS CONFUSION MATRICES ---")
     mcm = multilabel_confusion_matrix(y_true, y_pred)
     
     for i, class_name in enumerate(mlb.classes_):
         tn, fp, fn, tp = mcm[i].ravel()
         print(f"\n🏷️  {class_name.upper()}")
-        print(f"   True Positives (Hit)    : {tp}")
-        print(f"   False Positives (Miss)  : {fp}")
+        print(f"   True Positives (Hit)     : {tp}")
+        print(f"   False Positives (Miss)   : {fp}")
         print(f"   False Negatives (Ignored): {fn}")
         print(f"   True Negatives (Correctly Omitted): {tn}")
-
 def main():
     parser = argparse.ArgumentParser(description='TCG Poke Research Tool')
     parser.add_argument('--ingest', action='store_true')

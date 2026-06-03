@@ -25,7 +25,12 @@ services:
       - "8501:8501"
     depends_on:
       - poke_db
-       # Overrride Dockerfile ENTRYPOINT to run Streamlit
+    # --- ADD THIS VOLUMES BLOCK ---
+    volumes:
+      - ./:/app           # Syncs your entire project folder
+      - ./logs:/app/logs  # Explicitly syncs the logs directory
+    # ------------------------------
+    # Overrride Dockerfile ENTRYPOINT to run Streamlit
     command: ["streamlit", "run", "src/dashboard/app.py", "--server.address=0.0.0.0"]
 
 volumes:
