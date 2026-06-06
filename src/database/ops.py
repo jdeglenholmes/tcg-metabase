@@ -5,14 +5,13 @@ from src.database.connection import get_engine
 def upsert_card_data(card_data: dict):
     """
     Refactored for dynamic metadata: Upserts set info first, 
-    then updates/inserts card records.
+    then updates/inserts card records safely preserving ML data.
     """
     engine = get_engine()
     card_set_info = card_data.get('set', {})
 
-    with engine.connect() as conn:
+    with engine.begin() as conn: # using engine.begin() automatically handles the commit!
         # 1. UPSERT Set Metadata (Parent)
-        # Keeps name, series, date, and total_cards synced with the API
         conn.execute(
             text("""
                 INSERT INTO card_sets (set_id, name, series, release_date, total_cards)
@@ -37,24 +36,24 @@ def upsert_card_data(card_data: dict):
             text("""
                 INSERT INTO tcg_cards (
                     card_id, name, illustrator, rarity, set_id, variants, market_price,
-                    image_url, art_style, has_trainer, card_aesthetic, pokemon_count, 
-                    cameo_pokemon, image_embedding
+                    image_url, art_style, has_trainer, card_aesthetic, cameos, image_embedding
                 )
                 VALUES (
                     :card_id, :name, :illustrator, :rarity, :set_id, :variants, :market_price,
-                    :image_url, :art_style, :has_trainer, :card_aesthetic, :pokemon_count, 
-                    :cameo_pokemon, :image_embedding
+                    :image_url, :art_style, :has_trainer, :card_aesthetic, :cameos, :image_embedding
                 )
                 ON CONFLICT (card_id) DO UPDATE SET
                     market_price = EXCLUDED.market_price,
                     image_url = EXCLUDED.image_url,
-                    art_style = EXCLUDED.art_style,
-                    has_trainer = EXCLUDED.has_trainer,
-                    card_aesthetic = EXCLUDED.card_aesthetic,
-                    pokemon_count = EXCLUDED.pokemon_count,
-                    cameo_pokemon = EXCLUDED.cameo_pokemon,
-                    image_embedding = EXCLUDED.image_embedding,
                     variants = EXCLUDED.variants,
+                    has_trainer = EXCLUDED.has_trainer,
+                    
+                    -- ML SAFEGUARDS: Do not overwrite existing ML data with NULLs during re-ingestion
+                    art_style = COALESCE(EXCLUDED.art_style, tcg_cards.art_style),
+                    card_aesthetic = COALESCE(EXCLUDED.card_aesthetic, tcg_cards.card_aesthetic),
+                    cameos = COALESCE(EXCLUDED.cameos, tcg_cards.cameos),
+                    image_embedding = COALESCE(EXCLUDED.image_embedding, tcg_cards.image_embedding),
+                    
                     updated_at = CURRENT_TIMESTAMP;
             """),
             {
@@ -66,12 +65,14 @@ def upsert_card_data(card_data: dict):
                 'variants': json.dumps(card_data['variants']) if card_data.get('variants') else None,
                 'market_price': card_data.get('market_price'),
                 'image_url': card_data.get('image_url'),
-                'art_style': card_data.get('art_style'),
-                'has_trainer': card_data.get('has_trainer'),
-                'card_aesthetic': card_data.get('card_aesthetic'),
-                'pokemon_count': card_data.get('pokemon_count'),
-                'cameo_pokemon': card_data.get('cameo_pokemon'),
+                
+                # safely map the 'is_trainer_card' dictionary key to the 'has_trainer' db column
+                'has_trainer': card_data.get('is_trainer_card', False), 
+                
+                # ML Columns (Likely None during initial API ingest, populated later by enrichment.py)
+                'art_style': json.dumps(card_data.get('art_style')) if card_data.get('art_style') else None,
+                'card_aesthetic': json.dumps(card_data.get('card_aesthetic')) if card_data.get('card_aesthetic') else None,
+                'cameos': card_data.get('cameos'),
                 'image_embedding': card_data.get('image_embedding')
             }
         )
-        conn.commit()

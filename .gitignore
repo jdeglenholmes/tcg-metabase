@@ -8,3 +8,7 @@ list_tcg_set_ids.txt
 # Logs
 logs/
 *.log
+
+# Reference material
+ref
+

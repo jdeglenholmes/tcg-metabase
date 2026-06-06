@@ -36,15 +36,12 @@ def initialise_poke_schemas():
         market_price FLOAT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        -- NEW Image Discovery & Clustering Fields
+        -- Image Discovery & Clustering Fields
         image_url TEXT,
-        art_style VARCHAR(50),       /* e.g. minimalist, watercolour, anime */
-        has_trainer BOOLEAN,         /* True if partner card, False if trainerless */
-        card_aesthetic JSONB,  /* e.g. whimsical, kinetic, chaotic */ 
-        pokemon_count INT,           /* Track cards featuring multiple Pokemon */
-        cameo_pokemon TEXT[],        /* Array of background/unnamed Pokemon */
-
-        -- 512 dimensions matches standard CLIP ViT-B/32 models
+        art_style VARCHAR(50),       
+        has_trainer BOOLEAN,      
+        card_aesthetic JSONB,        
+        cameos INT,
         image_embedding vector(512),
         enrichment_status VARCHAR(20) DEFAULT 'pending'
     );
