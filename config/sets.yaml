@@ -1,15 +1,48 @@
+# TCG Pokemon Sets displayed most recent first
 sets:
-  # Canonincal mapping (for direct lookups)
-  "sv6pt5": "sv6pt5"
-  "sv3pt5": "sv3pt5"
+  # Mega Evolution Expansion:
+  "chaos-rising": "me4"
+  "perfect-order": "me3"
+  "phantasmal-flames": "me2"
+  "ascended-heroes": "me2pt5"
+  "mega-evolution": "me1"
   
-  # Aliases (mapping legacy/human-readable names to canonical IDs)
+  # Scarlet & Violet Expansion:
+  "journey-together": "sv9"
+  "prismatic-evolutions": "sv8pt5"
+  "surging-sparks": "sv8"
+  "stellar-crown": "sv7"
   "shrouded-fable": "sv6pt5"
-  "sv06pt5": "sv6pt5"
+  "twilight-masquerade": "sv6"      # Great Sumi-e Ink and Watercolor examples
+  "temporal-forces": "sv5"          
+  "paldean-fates": "sv4pt5"         # Shiny Illustration Rares
+  "paradox-rift": "sv4"             # Heavy on Surreal/Abstract & Maximalist
   "151": "sv3pt5"
-  "sv03.5": "sv3pt5"
-  "sv3.5": "sv3pt5"
-
-  # New
+  "obsidian-flames": "sv3"
   "paldea-evolved": "sv2"
-  "sv02": "sv2"
+  "sv-base": "sv1"
+
+  # Sword & Shield Expansion:
+  "crown-zenith-gg": "swsh12pt5gg"  # Galarian Gallery
+  "crown-zenith": "swsh12pt5"
+  "silver-tempest-tg": "swsh12tg"   # Trainer Gallery
+  "silver-tempest": "swsh12"
+  "lost-origin-tg": "swsh11tg"      # Trainer Gallery (Lots of Comic/Manga style)
+  "lost-origin": "swsh11"
+  "pokemon-go": "pgo"               # Summer 2022 Special Set
+  "astral-radiance-tg": "swsh10tg"  # Trainer Gallery
+  "astral-radiance": "swsh10"
+  "brilliant-stars-tg": "swsh9tg"   # Trainer Gallery
+  "brilliant-stars": "swsh9"
+  "fusion-strike": "swsh8"
+  "celebrations": "cel25"           # 25th Anniversary Special Set
+  "evolving-skies": "swsh7"         # Famous for Eeveelution Alt Arts
+  "chilling-reign": "swsh6"
+  "battle-styles": "swsh5"          # Introduced SwSh Alternate Arts
+  "shining-fates-sv": "swsh4pt5sv"  # Shiny Vault
+  "shining-fates": "swsh4pt5"
+  "vivid-voltage": "swsh4"
+  "champions-path": "swsh3pt5"
+  "darkness-ablaze": "swsh3"
+  "rebel-clash": "swsh2"
+  "swsh-base": "swsh1"

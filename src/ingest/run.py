@@ -145,25 +145,76 @@ def main():
         session.mount("https://", HTTPAdapter(max_retries=retry))
         
         try:
-            # 2. Fetch Data
-            print(f"📡 Querying API...")
-            response = session.get("https://api.pokemontcg.io/v2/cards", params={"q": f'set.id:"{target_id}"'}, timeout=30)
-            response.raise_for_status()
-            
-            raw_cards = response.json().get("data", [])
+            # 2. Fetch Data (Now with Pagination Support)
+            print(f"📡 Querying API for set {target_id}...")
+            raw_cards = []
+            current_page = 1
+            page_size = 250
+
+            while True:
+                # Dynamically update the page number in the parameters
+                params = {
+                    "q": f'set.id:"{target_id}"',
+                    "page": current_page,
+                    "pageSize": page_size
+                }
+                
+                response = session.get("https://api.pokemontcg.io/v2/cards", params=params, timeout=30)
+                response.raise_for_status()
+                
+                page_data = response.json().get("data", [])
+                
+                # If a page returns completely empty, exit the loop
+                if not page_data:
+                    break
+                    
+                raw_cards.extend(page_data)
+                print(f"   📄 Fetched page {current_page}: {len(page_data)} cards...")
+                
+                # If the page returned fewer cards than the maximum limit, we have reached the end
+                if len(page_data) < page_size:
+                    break
+                    
+                current_page += 1
+
             if not raw_cards:
                 print(f"❌ API returned empty dataset.")
                 return
 
-            print(f"✅ Downloaded {len(raw_cards)} cards. Starting Upsert...")
+            print(f"✅ Downloaded {len(raw_cards)} total cards. Starting Upsert...")
 
             # 3. Dynamic Upsert Loop
             for card in raw_cards:
-                # Transform the API structure to match your 'upsert_card_data' expectation
-                # (You may need to adjust these keys based on pokemontcg.io API structure)
+                
+                is_trainer_card = "'s " in card['name']
+                
+                prices = card.get('tcgplayer', {}).get('prices', {})
+                market_price = 0.0
+                
+                # Extract primary market price
+                if 'normal' in prices and 'market' in prices['normal']:
+                    market_price = prices['normal']['market']
+                elif 'holofoil' in prices and 'market' in prices['holofoil']:
+                    market_price = prices['holofoil']['market']
+                elif 'reverseHolofoil' in prices and 'market' in prices['reverseHolofoil']:
+                    market_price = prices['reverseHolofoil']['market']
+                    
+                # --- NEW: DERIVE VARIANT FLAGS ---
+                # The keys of the 'prices' dictionary tell us exactly which versions of the card exist.
+                available_variants = list(prices.keys())
+                
+                variants_flags = {
+                    "normal": "normal" in available_variants,
+                    "reverseHolofoil": "reverseHolofoil" in available_variants,
+                    "holofoil": "holofoil" in available_variants,
+                    "firstEdition": any("1stEdition" in v for v in available_variants)
+                }
+                # ---------------------------------
+                
                 enriched_card = {
                     'id': card['id'],
                     'name': card['name'],
+                    'is_trainer_card': is_trainer_card, 
                     'illustrator': card.get('artist'),
                     'rarity': card.get('rarity'),
                     'set': {
@@ -173,13 +224,11 @@ def main():
                         'release_date': card['set'].get('releaseDate'),
                         'total_cards': card['set'].get('total')
                     },
-                    'variants': card.get('tcgplayer', {}).get('prices', {}),
-                    'market_price': card.get('tcgplayer', {}).get('prices', {}).get('holofoil', {}).get('market', 0),
+                    'variants': variants_flags,     # Now stores a clean JSON dictionary of True/False flags!
+                    'market_price': market_price,   
                     'image_url': card.get('images', {}).get('large'),
-                    # ... add other fields like image_embedding if available ...
                 }
                 upsert_card_data(enriched_card)
-                
             print(f"🎉 Successfully upserted {len(raw_cards)} records.")
             
         except Exception as e:
