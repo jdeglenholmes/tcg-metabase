@@ -1,14 +1,32 @@
-.env
-pokemon-sync-venv
-.vscode
-notebooks
-sql-shortcuts.txt
-list_tcg_set_ids.txt
-
-# Logs
-logs/
-*.log
-
 # Reference material
 ref
 
+# --- Environment ---
+.env
+.venv/
+pokemon-sync-venv/
+env/
+__pycache__/
+*.pyc
+
+# --- Database & Config ---
+# Never push your real DB credentials
+.env
+
+# --- Streamlit / Logs ---
+.streamlit/
+logs/
+app_log.txt
+
+# --- ML / Data Files ---
+# Do not push the database dumps or the CSV ground truth files 
+# if they contain private or very large data
+*.csv
+*.db
+*.sqlite
+data/
+
+# --- OS / IDE ---
+.DS_Store
+.vscode/
+.idea/
