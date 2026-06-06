@@ -1,37 +1,35 @@
-## PokeNexus
-This project is a modular Python-based pipeline designed to discover Pokémon TCG metadata and analyze set distributions. While it currently functions as a robust ETL tool, it is part of a wider ambition to create a streamlined application that **bridges the gap between TCG card trends and the VGC metagame**.
+## TCG Card Art Labeler
+A professional-grade data engineering and annotation platform designed to build high-quality ground-truth datasets for Pokémon TCG art classification.
 
-## System Architecture
-The system is split into three distinct layers to ensure research logic is decoupled from database operations.
+This tool enables data analysts to rapidly curate and label card art styles and aesthetics, powering machine learning models that analyze the visual taxonomy of the Pokémon TCG.
 
-1. **Discovery & Analysis Layer** (`discovery.py`): Uses fuzzy search and dynamic filtering to map user input to official TCG sets. It includes a Rarity Profiler to calculate "Rarity Ratios" (Common, Rare, Ultra-Rare) before ingestion.
+## Key Features
 
-2. **Orchestration Layer** (`main.py`): The central command center that manages CLI arguments, stateful branching between research and ingestion modes, and human-in-the-loop confirmations.
+1. **Integrated Pipeline:** Fully automated ingestion from the Pokémon TCG API, paired with a custom computer vision enrichment pipeline (CLIP + OWLv2).
 
-3. **Persistence Layer** (`etl_upload.py`): Handles database interaction using idempotent "skip" logic to save API quota and rate-limiting to remain compliant with TCGdex limits.
+2. **Structured Taxonomies:** Multi-dimensional labeling system supporting both "Art Styles" (minimalist, painterly, cinematic, etc.) and "Card Aesthetics" (kinetic, whimsical, legendary, etc.).
 
-## Developer Workflow
-The `Makefile` abstracts complex Python comamnds into simple tasks.
+3. **Version-Controlled Ground Truth:** Supports side-by-side labeling experiments (v1, v2, etc.) to measure and improve model performance iteratively.
 
-| Command | Action |
-| :--- | :--- |
-| `make discover`	| Fast global search for all sets and prints a summary table. | 
-| `make discover RARITY="True"` |Includes a detailed Rarity Ratio breakdown (Slower API calls). |
-| `make ingest SET_NAME="Phantasmal"` | Runs the ETL pipeline for a specific set. |
-| `make clean` | Removes `__pycache__` directories to keep the workspace tidy. |
+4. **Professional UI:** Built with Streamlit for a distraction-free, responsive labeling experience with features like auto-advancement, set-progress tracking, and dynamic visual navigation
 
-## Logic Flow & Safety
+## Pipeline Architecture
+The system follows a modular ETL approach to ensure data integrity and model reproducibility.
 
-Trigger: User executes a make command.
+1. **Ingestion:**  Python-based ingestion script fetches raw set metadata and pricing, storing them into a structured PostgreSQL database.
 
-* **Search & Analyze:** The system requests sets based on filters like "Minimum Card Count" or "Series".
+2. **Enrichment:**  An asynchronous worker processes images using CLIP (for style taxonomy) and OWLv2 (for object/cameo detection).
 
-* **Verify:** If in ingest mode, the user must provide a mandatory (Y/N) confirmation before writing to the database.
+3. **Annotation:** The Streamlit dashboard serves as the human-in-the-loop layer, allowing for ground-truth validation against the ML model's initial predictions.
 
-* **Filter & Persist:** The system checks if a set_id already exists to prevent duplicates and then performs atomic upserts.
+## Project Stucture
+* src/ingest/: Core data ingestion, enrichment workers, and ML model wrappers.
 
-* **Error Protection:** Uses .get() defaults to prevent crashes on missing API data and includes automatic schema initialization.
+* src/dashboard/: Streamlit web interface and labeling logic.
 
-## The Ambition: TCG to VGC
+* config/: Configuration files for sets and taxonomy definitions.
 
-Currently, this tool focuses on the "Trading Card Game" side of the franchise. Future iterations aim to correlate TCG card popularity and rarity shifts with usage statistics in the VGC (Video Game Championship) metagame to identify emerging trends across both formats.
+* logs/: Pipeline execution logs for debugging ingestion failures.
+
+## License
+This project is for internal research and data analysis purposes.
