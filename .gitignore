@@ -21,7 +21,8 @@ app_log.txt
 # --- ML / Data Files ---
 # Do not push the database dumps or the CSV ground truth files 
 # if they contain private or very large data
-*.csv
+ ground_truth_*.csv
+ master_ground_truth.csv
 *.db
 *.sqlite
 data/
@@ -30,3 +31,5 @@ data/
 .DS_Store
 .vscode/
 .idea/
+
+./tests

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import datetime 
 import json
+import re  
 from sqlalchemy import text
 from src.database.connection import get_engine
 
@@ -16,37 +17,73 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..
 # --- TAXONOMIES ---
 ART_STYLE_KEYS = [
     "minimalist", "maximalist", "traditional_watercolor", 
-    "crisp_digital_portrait", "cinematic", "handcrafted_diorama", "painterly"
+    "crisp_digital_portrait", "cinematic", "handcrafted_diorama", 
+    "painterly", "standard_generic", "other_unique" 
 ]
 
 AESTHETIC_KEYS = [
-    "kinetic", "chaotic", "modern", "whimsical", "legendary"
+    "kinetic", "chaotic", "modern", "whimsical", "legendary", "neutral"
 ]
 
 ALL_KEYS = ART_STYLE_KEYS + AESTHETIC_KEYS
 
 # --- HELPER FUNCTIONS ---
-def run_pipeline_command(cmd_list, step_name):
+def run_pipeline_live(cmd_list, step_name):
+    """Runs a command, captures tqdm output, and updates a Streamlit progress bar live."""
     log_dir = os.path.join(PROJECT_ROOT, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app_log.txt")
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    st.write(f"⚙️ Executing: **{step_name}**")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     try:
-        result = subprocess.run(
-            cmd_list, capture_output=True, text=True, check=True, cwd=PROJECT_ROOT
+        # We use STDOUT and STDERR combined, as tqdm writes to STDERR by default
+        process = subprocess.Popen(
+            cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+            text=True, cwd=PROJECT_ROOT, bufsize=1, encoding='utf-8'
         )
+        
+        output_lines = []
+        current_line = ""
+        
+        # Read character by character to accurately capture tqdm's \r (carriage return) carriage updates
+        while True:
+            char = process.stdout.read(1)
+            if not char and process.poll() is not None:
+                break
+            
+            if char in ['\r', '\n']:
+                clean_line = current_line.strip()
+                if clean_line:
+                    # Look for the tqdm percentage (e.g., "45%|")
+                    match = re.search(r'(\d{1,3})%\|', clean_line)
+                    if match:
+                        pct = min(int(match.group(1)), 100)
+                        progress_bar.progress(pct / 100.0)
+                        
+                    # Update the live status text with the current operation
+                    status_text.code(clean_line)
+                    output_lines.append(clean_line)
+                current_line = ""
+            else:
+                current_line += char
+                
+        process.wait()
+        
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"\n[{timestamp}] ✅ SUCCESS: {step_name}\n")
-            f.write(result.stdout + "\n")
-        return True, result.stdout
-    except subprocess.CalledProcessError as e:
+            f.write(f"\n[{timestamp}] ✅ DONE: {step_name}\n")
+        
+        status_text.success("Process Complete!")
+        return process.returncode == 0, "\n".join(output_lines)
+        
+    except Exception as e:
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"\n[{timestamp}] ❌ ERROR: {step_name} FAILED\n")
-            f.write(f"CMD: {' '.join(cmd_list)}\n")
-            f.write(f"--- STDOUT ---\n{e.stdout}\n")
-            f.write(f"--- STDERR ---\n{e.stderr}\n")
-        return False, e.stderr
+            f.write(f"\n[{timestamp}] ❌ ERROR: {step_name} FAILED\n{str(e)}\n")
+        return False, str(e)
+
 
 def get_set_name_mapping():
     mapping = {}
@@ -96,6 +133,17 @@ def get_labeling_state(selected_set, current_user, csv_path):
     with engine.connect() as conn:
         query = "SELECT card_id, name, image_url FROM tcg_cards WHERE card_id LIKE :prefix AND image_url IS NOT NULL;"
         db_df = pd.read_sql_query(text(query), conn, params={"prefix": f"{selected_set}-%"})
+        
+    def extract_number(cid):
+        parts = cid.split('-')
+        if len(parts) > 1:
+            match = re.search(r'\d+', parts[-1])
+            if match: return int(match.group())
+        return 99999
+        
+    if not db_df.empty:
+        db_df['sort_key'] = db_df['card_id'].apply(extract_number)
+        db_df = db_df.sort_values('sort_key').drop(columns=['sort_key']).reset_index(drop=True)
             
     return db_df, user_history
 
@@ -155,24 +203,9 @@ with engine.connect() as conn:
     
 all_sets = sorted(raw_db_sets, key=lambda x: CHRONOLOGICAL_ORDER.index(x) if x in CHRONOLOGICAL_ORDER else 9999)
 
-# Enforce Set-by-Set loading (No 'All Sets')
+# Enforce Set-by-Set loading
 st.sidebar.caption("📂 Select Set")
 selected_set = st.sidebar.selectbox("set_select", all_sets, format_func=format_set_name, label_visibility="collapsed")
-
-# --- HIDDEN NUKE PROTOCOL ---
-with st.sidebar.expander("☢️ Danger Zone"):
-    st.warning(f"Wipe all data for version `{label_version}`?")
-    st.caption("Type **NUKE** below to confirm.")
-    confirm_nuke = st.text_input("nuke_input", label_visibility="collapsed")
-    if confirm_nuke == "NUKE":
-        if st.button("🚨 Erase Labels", type="primary", use_container_width=True):
-            if os.path.exists(active_csv):
-                os.remove(active_csv)
-            with engine.begin() as conn:
-                # Safely wipe ONLY the manual taxonomies, protecting your ML cameos/embeddings!
-                conn.execute(text("UPDATE tcg_cards SET art_style = NULL, card_aesthetic = NULL;"))
-            st.success("Slate wiped clean!")
-            st.rerun()
 
 
 # ==========================================
@@ -260,8 +293,83 @@ if app_mode == "Art Labeler":
                 else:
                     selections[key] = form_col2.checkbox(display_name, value=default_val)
             
-            # --- THIS IS THE PART THAT GOT DELETED! ---
             st.write("---")
             if st.form_submit_button("💾 Save & Auto-Advance", use_container_width=True, type="primary"):
                 save_label(selected_id, user_name, target_column, selections, active_csv)
+                st.rerun()
+
+# ==========================================
+# MODE 2: DATA MANAGER & INGESTION 
+# ==========================================
+elif app_mode == "Data Manager":
+    st.title("🗄️ Database Manager")
+    st.write("Track ingestion progress and enrich sets with machine learning metadata.")
+    
+    engine = get_engine()
+    with engine.connect() as conn:
+        # FIX: Use LOWER(set_id) instead of split_part string manipulation
+        count_query = """
+            SELECT 
+                LOWER(set_id) as set_prefix, 
+                COUNT(*) as total_cards,
+                COUNT(CASE WHEN enrichment_status = 'processed' THEN 1 END) as enriched_cards
+            FROM tcg_cards 
+            GROUP BY LOWER(set_id);
+        """
+        db_stats = {r[0]: {'total': r[1], 'enriched': r[2]} for r in conn.execute(text(count_query)).fetchall()}
+        
+    yaml_canonical_ids = list(RAW_YAML_SETS.values())
+    sorted_yaml_sets = sorted(yaml_canonical_ids, key=lambda x: CHRONOLOGICAL_ORDER.index(x) if x in CHRONOLOGICAL_ORDER else 9999)
+    
+    def format_manager_option(set_id):
+        name = format_set_name(set_id)
+        stats = db_stats.get(set_id, {'total': 0, 'enriched': 0})
+        
+        if stats['total'] == 0:
+            return f"🔴 {name}  [Missing]"
+        elif stats['enriched'] < stats['total']:
+            return f"🟡 {name}  [{stats['enriched']}/{stats['total']} Enriched]"
+        else:
+            return f"🟢 {name}  [{stats['total']} cards - Fully Ready]"
+    
+    st.write("---")
+    st.subheader("Database Actions")
+    
+    target_set = st.selectbox(
+        "Select a Target Set:", 
+        options=sorted_yaml_sets, 
+        format_func=format_manager_option
+    )
+    
+    st.write("---")
+    
+    # Split the actions into two distinct buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📥 1. Ingest Raw API Data", use_container_width=True):
+            reverse_yaml = {v: k for k, v in RAW_YAML_SETS.items()}
+            slug_to_ingest = reverse_yaml.get(target_set, target_set)
+            
+            ingest_cmd = [sys.executable, "-m", "src.ingest.run", "--ingest", "--set_name", slug_to_ingest]
+            success, output = run_pipeline_live(ingest_cmd, f"Ingesting Set: {format_set_name(target_set)}")
+            
+            if success:
+                st.toast("Ingestion Complete! Ready for Enrichment.", icon="✅")
+                st.rerun()
+            else:
+                st.error("Ingestion failed. Check logs.")
+                
+    with col2:
+        if st.button("🧠 2. Run ML Enrichment", use_container_width=True, type="primary"):
+            # Pass the current target_set to the enrich command
+            enrich_cmd = [
+                sys.executable, "-m", "src.ingest.run", 
+                "--enrich", 
+                "--set_name", target_set # <--- PASS THE SET NAME HERE
+            ]
+            success, output = run_pipeline_live(enrich_cmd, f"Enriching {format_set_name(target_set)}...")
+            
+            if success:
+                st.toast("Enrichment Complete!", icon="✅")
                 st.rerun()
