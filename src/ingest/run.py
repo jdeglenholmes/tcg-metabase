@@ -125,10 +125,18 @@ def main():
         run_cli_validation_suite(target_set_id=args.set_id, target_set_name=args.set_name)
         return
 
-    if args.enrich or args.recompute:
-        run_clip_enrichment_worker(batch_size=args.batch_size, force_recompute=args.recompute)
-        return
-
+    if args.enrich:
+        # Defensive fallback: catch either set_name or set_id just in case
+        target = args.set_name if args.set_name else args.set_id
+        
+        print(f"🔥 DEBUG [run.py]: Captured target '{target}'. Passing to worker...")
+        
+        run_clip_enrichment_worker(
+            batch_size=args.batch_size, 
+            force_recompute=args.recompute, 
+            set_prefix=target
+        )
+        
     if args.ingest:
         from src.database.ops import upsert_card_data # Import the new ops
         
