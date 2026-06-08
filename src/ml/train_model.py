@@ -1,4 +1,5 @@
 import os
+import json
 import ast
 import pandas as pd
 import numpy as np
@@ -11,63 +12,67 @@ from sklearn.metrics import classification_report
 from src.database.connection import get_engine
 
 def load_training_data():
-    """Merges your master CSV labels with the 512-d CLIP embeddings from the DB."""
-    csv_path = "master_ground_truth.csv"
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"Cannot find {csv_path}. Have you run adjudicate.py yet?")
-        
-    # 1. Load the pristine labels
-    df_labels = pd.read_csv(csv_path)
-    
-    # BULLETPROOF FIX 1: Strip any invisible trailing spaces from the CSV
-    df_labels['card_id'] = df_labels['card_id'].astype(str).str.strip()
-    
-    y_cols = [c for c in df_labels.columns if c != 'card_id']
-    print(f"🎯 Training on {len(df_labels)} cards across {len(y_cols)} art styles.")
-
-    # 2. Fetch Embeddings from the Database
-    # BULLETPROOF FIX 2: Do not use the massive IN clause. Pull all enriched cards and let Pandas match them.
+    """Fetches human tags (Y) and CLIP embeddings (X) directly from PostgreSQL."""
+    print("🧠 Step 1: Loading human-verified labels and CLIP embeddings from DB...")
     engine = get_engine()
-    query = "SELECT card_id, image_embedding FROM tcg_cards WHERE image_embedding IS NOT NULL;"
+    
+    # ⚠️ NOTE: Update 'image_embedding' if your DB column is named slightly differently 
+    # (e.g., 'embedding', 'clip_embedding', etc.)
+    query = """
+        SELECT card_id, tags, image_embedding 
+        FROM tcg_cards 
+        WHERE tags IS NOT NULL 
+        AND image_embedding IS NOT NULL;
+    """
     
     with engine.connect() as conn:
-        df_embeddings = pd.read_sql_query(text(query), conn)
+        df = pd.read_sql(text(query), conn)
 
-    # Strip DB card IDs just in case
-    df_embeddings['card_id'] = df_embeddings['card_id'].astype(str).str.strip()
+    if df.empty:
+        raise ValueError("❌ No data found! Ensure you have tagged cards and generated embeddings.")
 
-    # 3. Merge Data (Pandas will only keep the rows that exist in BOTH dataframes)
-    df_merged = pd.merge(df_labels, df_embeddings, on='card_id')
-    print(f"🔗 Successfully matched {len(df_merged)} embeddings to your labels.")
+    # --- 1. Parse the human labels (Y) ---
+    def parse_tags(val):
+        if isinstance(val, str):
+            try: return json.loads(val)
+            except: return {}
+        return val if isinstance(val, dict) else {}
+
+    # Convert the JSON tags into separate binary columns
+    tags_list = df['tags'].apply(parse_tags).tolist()
+    df_tags = pd.DataFrame(tags_list).fillna(0).astype(int)
     
-    if len(df_merged) == 0:
-        raise ValueError("CRITICAL ERROR: Match failed. Check if 'image_embedding' column actually contains data.")
-
-    # Parse the pgvector string into a pure numpy array
-    def parse_vector(v):
-        if isinstance(v, str):
-            return np.array(ast.literal_eval(v))
-        return np.array(v)
-
-    # X = The 512 numbers (The Features)
-    X = np.vstack(df_merged['image_embedding'].apply(parse_vector).values)
+    # Sort columns alphabetically so the model always predicts in the same order
+    df_tags = df_tags.reindex(sorted(df_tags.columns), axis=1)
     
-    # y = Your 1s and 0s (The Targets)
-    y = df_merged[y_cols].values
+    target_names = df_tags.columns.tolist()
+    y = df_tags.values
 
-    return X, y, y_cols
+    # --- 2. Parse the CLIP embeddings (X) ---
+    def parse_embedding(val):
+        if isinstance(val, str):
+            try: 
+                # Sometimes arrays are stored as stringified lists
+                return ast.literal_eval(val) 
+            except: 
+                pass
+        return val
+
+    # Stack the lists into a 2D numpy array (NumCards x 512)
+    X = np.stack(df['image_embedding'].apply(parse_embedding).values)
+    
+    print(f"🎯 Loaded {len(df)} cards across {len(target_names)} target categories.")
+    return X, y, target_names
 
 def train_and_save_model():
-    print("🧠 Step 1: Loading data from CSV and Database...")
     X, y, target_names = load_training_data()
     
     # Split 80% for training, 20% for testing the model's accuracy
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    print("\n⚙️ Step 2: Training the Multi-Label Linear Classifier...")
-    # class_weight='balanced' is the magic parameter here. 
-    # It mathematically forces the model to pay extra attention to your rare classes 
-    # (like Surreal Abstract) so they aren't drowned out by Crisp Digital Portrait.
+    print("\n⚙️ Step 2: Training the Custom Supervised Layer (Linear Probe)...")
+    # class_weight='balanced' mathematically forces the model to pay extra attention 
+    # to your rare classes (like Surrealist or Handcrafted Diorama).
     base_estimator = LogisticRegression(max_iter=2000, class_weight='balanced')
     model = MultiOutputClassifier(base_estimator)
     
@@ -77,15 +82,20 @@ def train_and_save_model():
     y_pred = model.predict(X_test)
     
     # Print the scorecard!
+    print("="*60)
+    print("🏆 SUPERVISED MODEL PERFORMANCE")
+    print("="*60)
     print(classification_report(y_test, y_pred, target_names=target_names, zero_division=0))
 
     print("\n💾 Step 4: Saving Model Artifacts...")
     os.makedirs("src/ml/models", exist_ok=True)
     
-    # Save the trained model and the column names for the ingestion script to use later
-    joblib.dump(model, "src/ml/models/aesthetic_classifier.pkl")
+    # Save the trained weights
+    joblib.dump(model, "src/ml/models/linear_probe_model.pkl")
+    # Save the target names so your dashboard knows which prediction is which
     joblib.dump(target_names, "src/ml/models/target_names.pkl")
-    print("✅ Success! Model saved to src/ml/models/")
+    
+    print("✅ Supervised Model successfully trained and saved!")
 
 if __name__ == "__main__":
     train_and_save_model()
