@@ -19,6 +19,34 @@ def parse_json_aesthetic(x):
     if isinstance(x, dict): 
         return x
     
+def check_has_trainer_art(card):
+    """
+    Determines if a card features a trainer in the art alongside a Pokemon.
+    """
+    # 1. THE SAFETY CATCH: Ignore literal Trainer/Energy cards. 
+    # (This stops "Professor Oak's Research" from being flagged)
+    if card.get('supertype') != 'Pokémon':
+        return False
+        
+    name_lower = card.get('name', '').lower()
+    
+    # 2. THE OWNER HEURISTIC (Your logic)
+    # Expanded with some classic Gym Leaders and Villain teams!
+    known_owners = [
+        "brock", "misty", "lt. surge", "erika", "koga", "sabrina", "blaine", "giovanni",
+        "team rocket", "rocket", "aqua", "magma", "galactic", "plasma", "flare", "skull",
+        "cynthia", "lance", "steven", "n", "lillie", "arven", "iono", "ethan", "red", "blue"
+    ]
+    
+    # Check if the name contains any of the known owners WITH an apostrophe
+    if any(f"{owner}'s" in name_lower for owner in known_owners):
+        return True
+        
+    # Optional Bonus: Catch modern "SP" Pokemon from the Platinum era (e.g., "Garchomp C", "Lucario GL")
+    # if name_lower.endswith(" c") or name_lower.endswith(" gl"):
+    #     return True
+
+    return False
     # 2. If it's a string, try to parse it
     if isinstance(x, str):
         # Clean up any potential 'None' or empty strings
@@ -194,7 +222,7 @@ def main():
             # 3. Dynamic Upsert Loop
             for card in raw_cards:
                 
-                is_trainer_card = "'s " in card['name']
+                is_trainer_card = check_has_trainer_art(card)
                 
                 prices = card.get('tcgplayer', {}).get('prices', {})
                 market_price = 0.0
