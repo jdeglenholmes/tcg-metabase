@@ -3,8 +3,8 @@ sets:
   # Mega Evolution Expansion:
   "chaos-rising": "me4"
   "perfect-order": "me3"
-  "phantasmal-flames": "me2"
   "ascended-heroes": "me2pt5"
+  "phantasmal-flames": "me2"
   "mega-evolution": "me1"
   
   # Scarlet & Violet Expansion:
@@ -46,3 +46,15 @@ sets:
   "darkness-ablaze": "swsh3"
   "rebel-clash": "swsh2"
   "swsh-base": "swsh1"
+
+
+  # --- THE ASAKO ITO VINTAGE/MODERN ERA ---
+
+  "cosmic-eclipse": "sm12"
+  "unified-minds": "sm11"
+  "unbroken-bonds": "sm10"
+  "team-up": "sm9"
+  "lost-thunder": "sm8"
+  "celestial-storm": "sm7"
+  "ultra-prism": "sm5"
+  "sun-moon-base": "sm1"

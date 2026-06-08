@@ -18,14 +18,16 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..
 ART_STYLE_KEYS = [
     "minimalist", "maximalist", "traditional_watercolor", 
     "crisp_digital_portrait", "cinematic", "handcrafted_diorama", 
-    "painterly", "standard_generic", "other_unique" 
+    "surrealist", "standard_generic",
+    "pop_art", "comic_book_illustration"
 ]
 
 AESTHETIC_KEYS = [
     "kinetic", "chaotic", "modern", "whimsical", "legendary", "neutral"
 ]
 
-ALL_KEYS = ART_STYLE_KEYS + AESTHETIC_KEYS
+BINARY_FEATURES = ["has_cameo", "is_trainer_gallery"]
+ALL_KEYS = ART_STYLE_KEYS + AESTHETIC_KEYS + BINARY_FEATURES
 
 # --- HELPER FUNCTIONS ---
 def run_pipeline_live(cmd_list, step_name):
@@ -147,19 +149,12 @@ def get_labeling_state(selected_set, current_user, csv_path):
             
     return db_df, user_history
 
-def save_label(card_id, user_name, target_column, selections, csv_path):
+def save_label(card_id, user_name, selections, csv_path):
     df = pd.read_csv(csv_path)
     mask = (df['card_id'] == card_id) & (df['labeled_by'] == user_name)
     row_data = {"card_id": card_id, "labeled_by": user_name}
     
-    if mask.any():
-        existing_row = df[mask].iloc[0].to_dict()
-        for k in ALL_KEYS:
-            row_data[k] = existing_row.get(k, 0)
-    else:
-        for k in ALL_KEYS:
-            row_data[k] = 0
-            
+    # 1. Save EVERYTHING to the CSV (Ground Truth)
     for key, val in selections.items():
         row_data[key] = 1 if val else 0
         
@@ -167,17 +162,25 @@ def save_label(card_id, user_name, target_column, selections, csv_path):
     df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
     df.to_csv(csv_path, index=False)
     
-    true_labels = [k for k, v in selections.items() if v]
+    # 2. Split the selections for the Database
+    true_art = [k for k, v in selections.items() if v and k in ART_STYLE_KEYS]
+    true_aes = [k for k, v in selections.items() if v and k in AESTHETIC_KEYS]
+    
+    # 3. Update the Database (Binary features stay in CSV only)
     engine = get_engine()
     with engine.begin() as conn:
-        query = f"""
+        query = """
             UPDATE tcg_cards 
-            SET {target_column} = :labels,
+            SET art_style = :art,
+                card_aesthetic = :aes,
                 updated_at = CURRENT_TIMESTAMP
             WHERE card_id = :card_id;
         """
-        conn.execute(text(query), {"labels": json.dumps(true_labels), "card_id": card_id})
-
+        conn.execute(text(query), {
+            "art": json.dumps(true_art), 
+            "aes": json.dumps(true_aes), 
+            "card_id": card_id
+        })
 
 # --- HYPER-CLEAN SIDEBAR ---
 user_name = st.sidebar.text_input("annotator_name", placeholder="👤 Enter Annotator Name...", label_visibility="collapsed")
@@ -229,21 +232,36 @@ if app_mode == "Art Labeler":
     
     nav_col1, nav_col2, nav_col3 = st.columns([2, 1, 1])
     with nav_col1:
-        unlabeled_df = db_df[~db_df['card_id'].isin(user_history_ids)]
-        default_idx = 0
-        if not unlabeled_df.empty:
-            first_unlabeled_id = unlabeled_df.iloc[0]['card_id']
-            default_idx = db_df['card_id'].tolist().index(first_unlabeled_id)
+        card_list = db_df['card_id'].tolist()
         
+        # 1. Safety Check: If you changed sets in the sidebar, clear the old memory
+        if "nav_selectbox" in st.session_state and st.session_state["nav_selectbox"] not in card_list:
+            del st.session_state["nav_selectbox"]
+            
+        # 2. Check if the Save button just told us to advance +1
+        if "advance_to" in st.session_state:
+            if st.session_state["advance_to"] in card_list:
+                st.session_state["nav_selectbox"] = st.session_state["advance_to"]
+            del st.session_state["advance_to"]
+            
+        # 3. If it's a fresh load, find the first untagged card
+        elif "nav_selectbox" not in st.session_state:
+            unlabeled_df = db_df[~db_df['card_id'].isin(user_history_ids)]
+            if not unlabeled_df.empty:
+                st.session_state["nav_selectbox"] = unlabeled_df.iloc[0]['card_id']
+            else:
+                st.session_state["nav_selectbox"] = card_list[0]
+                
+        # 4. Create the selectbox driven entirely by its Session State KEY
         selected_id = st.selectbox(
             "card_nav", 
-            options=db_df['card_id'].tolist(),
+            options=card_list,
             format_func=lambda x: display_map[x],
-            index=default_idx,
+            key="nav_selectbox", # <--- THE MAGIC FIX
             label_visibility="collapsed"
         )
         current_card = db_df[db_df['card_id'] == selected_id].iloc[0]
-        
+
     total_labeled = len(user_history)
     set_labeled = len(user_history[user_history['card_id'].str.startswith(f"{selected_set}-")]) if total_labeled > 0 else 0
     
@@ -260,44 +278,50 @@ if app_mode == "Art Labeler":
         st.image(current_card['image_url'], use_container_width=True)
         
     with col2:
-        taxonomy_choice = st.radio(
-            "target_toggle", 
-            ["🎨 Art Styles", "✨ Card Aesthetics"], 
-            horizontal=True,
-            label_visibility="collapsed"
-        )
-        
-        if taxonomy_choice == "🎨 Art Styles":
-            current_keys = ART_STYLE_KEYS
-            target_column = "art_style"
-        else:
-            current_keys = AESTHETIC_KEYS
-            target_column = "card_aesthetic"
-            
+        # Load any existing data for this card across ALL keys
         existing_data = {}
         if selected_id in user_history_ids:
             existing_row = user_history[user_history['card_id'] == selected_id].iloc[0]
-            for k in current_keys:
+            for k in ALL_KEYS:
                 existing_data[k] = bool(existing_row.get(k, 0))
-        
-        with st.form(key=f"label_form_{selected_id}_{target_column}", clear_on_submit=False):
-            selections = {}
-            form_col1, form_col2 = st.columns(2)
+
+        # Open a SINGLE form that wraps all the tabs
+        with st.form(key=f"label_form_{selected_id}", clear_on_submit=False):
             
-            for idx, key in enumerate(current_keys):
-                display_name = key.replace('_', ' ').title()
-                default_val = existing_data.get(key, False)
-                
-                if idx % 2 == 0:
-                    selections[key] = form_col1.checkbox(display_name, value=default_val)
-                else:
-                    selections[key] = form_col2.checkbox(display_name, value=default_val)
+            # Use Streamlit Tabs instead of a radio toggle
+            tab_art, tab_aes, tab_feat = st.tabs(["🎨 Art Styles", "✨ Card Aesthetics", "🔍 Card Features"])
+            selections = {}
+            
+            # Helper function to render checkboxes in 2 columns
+            def render_checkboxes(keys, tab_container):
+                col_a, col_b = tab_container.columns(2)
+                for idx, key in enumerate(keys):
+                    display_name = key.replace('_', ' ').title()
+                    default_val = existing_data.get(key, False)
+                    target_col = col_a if idx % 2 == 0 else col_b
+                    selections[key] = target_col.checkbox(display_name, value=default_val)
+
+            # Render each tab
+            render_checkboxes(ART_STYLE_KEYS, tab_art)
+            render_checkboxes(AESTHETIC_KEYS, tab_aes)
+            render_checkboxes(BINARY_FEATURES, tab_feat)
             
             st.write("---")
+            
+            # One save button to rule them all
             if st.form_submit_button("💾 Save & Auto-Advance", use_container_width=True, type="primary"):
-                save_label(selected_id, user_name, target_column, selections, active_csv)
+                
+                save_label(selected_id, user_name, selections, active_csv)
+                
+                # --- NEW +1 ADVANCE LOGIC ---
+                current_idx = card_list.index(selected_id)
+                # Ensure we don't go out of bounds on the very last card
+                if current_idx + 1 < len(card_list):
+                    st.session_state["advance_to"] = card_list[current_idx + 1]
+                # ----------------------------
+                
                 st.rerun()
-
+                
 # ==========================================
 # MODE 2: DATA MANAGER & INGESTION 
 # ==========================================
