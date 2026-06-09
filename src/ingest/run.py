@@ -7,11 +7,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from src.database.connection import get_engine
 from src.ingest.enrichment import run_clip_enrichment_worker
-from src.ingest.ground_truth_dict import ground_truth
 from src.utils.discovery import resolve_set_id
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.metrics import classification_report, multilabel_confusion_matrix
-from sklearn.preprocessing import MultiLabelBinarizer
+
 import json
 # --- Helper to parse JSONB safely ---
 def parse_json_aesthetic(x):
