@@ -60,8 +60,20 @@ AESTHETIC_TAXONOMY_MAPPING = {
     "a calm, peaceful, static portrait, character standing still, relaxed natural environment, neutral resting mood": "neutral"
 }
 
-device = "cpu" 
+print("⚙️ Initializing ML Models...")
+
+# 1. Dynamically detect CUDA
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"🚀 Computation Device set to: {device.upper()}")
+
+# 2. Load the model
 model, preprocess = clip.load("ViT-B/32", device=device)
+model = model.half()
+
+# 3. Apply the FP16 (Half-Precision) Optimization
+if device == "cuda":
+    model = model.half()
+    print("⚡ FP16 VRAM Optimization Activated!")
 
 art_keys = list(ART_TAXONOMY_MAPPING.keys())
 art_tokens = clip.tokenize(art_keys).to(device)

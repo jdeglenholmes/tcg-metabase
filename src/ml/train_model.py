@@ -10,6 +10,7 @@ from sklearn.multioutput import MultiOutputClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from src.database.connection import get_engine
+from sklearn.neural_network import MLPClassifier
 
 def load_training_data():
     """Fetches human tags (Y) and CLIP embeddings (X) directly from PostgreSQL."""
@@ -70,10 +71,20 @@ def train_and_save_model():
     # Split 80% for training, 20% for testing the model's accuracy
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    print("\n⚙️ Step 2: Training the Custom Supervised Layer (Linear Probe)...")
-    # class_weight='balanced' mathematically forces the model to pay extra attention 
-    # to your rare classes (like Surrealist or Handcrafted Diorama).
-    base_estimator = LogisticRegression(max_iter=2000, class_weight='balanced')
+    print("\n⚙️ Step 2: Training the Custom Supervised Layer (MLP Neural Net)...")
+    
+    # 2. Replace LogisticRegression with MLPClassifier
+    # This creates a neural network with one hidden layer of 256 neurons
+    base_estimator = MLPClassifier(
+        hidden_layer_sizes=(256,), 
+        activation='relu', 
+        solver='adam', 
+        max_iter=1000, 
+        early_stopping=True,
+        random_state=42
+    )
+    
+    # We still wrap it in MultiOutputClassifier because cards can have multiple tags!
     model = MultiOutputClassifier(base_estimator)
     
     model.fit(X_train, y_train)
