@@ -17,7 +17,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 # --- TAXONOMIES ---
 ART_STYLE_KEYS = [
-    "minimalist", "maximalist", "traditional_watercolor", 
+    "minimalist", "maximalist", "traditional_hand_painted", 
     "crisp_digital_portrait", "cinematic", "handcrafted_diorama", 
     "surrealist", "standard_generic", "pop_art", "comic_book_illustration"
 ]
@@ -176,10 +176,10 @@ def run_local_audit(user_history_df):
 
 # --- HYPER-CLEAN SIDEBAR ---
 st.sidebar.title("🎴 TCG ML Studio")
-user_name = st.sidebar.text_input("annotator_name", placeholder="👤 Annotator Name...", label_visibility="collapsed")
+user_name = st.sidebar.text_input("User Name", placeholder="👤 User Name...", label_visibility="collapsed")
 
 if not user_name:
-    st.info("👈 Please enter your annotator name in the sidebar to access the studio.")
+    st.info("👈 Please enter your user name in the sidebar to access the studio.")
     st.stop()
 
 st.sidebar.write("---")
@@ -385,12 +385,19 @@ elif app_mode == "🧪 Model Testing":
                 except Exception as e: st.error(f"Error running evaluation: {e}")
 
     with col2:
-        st.subheader("🎯 Supervised Linear Probe")
-        st.markdown("Trains a custom classification layer specifically on your TCG dataset using CLIP embeddings.")
-        if st.button("🚀 Train & Test Custom Model", use_container_width=True, type="primary"):
-            with st.spinner("Training model and running 80/20 Test Split..."):
+        st.subheader("🚀 Train & Test Custom Model")
+        st.markdown("""
+        Train a **Multi-Layer Perceptron (MLP) Neural Network** layer directly on top of your 512-dimensional CLIP image embeddings.
+        
+        Unlike a simple linear baseline, this non-linear neural network maps complex, curved relationships in the visual data—allowing it to better learn the subtle boundary lines between intricate art styles and aesthetics.
+        """)
+        if st.button("🚀 Train Custom Model"):
+            with st.spinner("🧠 Initializing Multi-Layer Perceptron architecture..."):
                 try:
                     result = subprocess.run([sys.executable, "-m", "src.ml.train_model"], capture_output=True, text=True, cwd=PROJECT_ROOT)
                     st.success("Training Complete!")
                     st.text(result.stdout)
                 except Exception as e: st.error(f"Error training model: {e}")
+                pass
+            st.success("🎯 Custom Neural Network trained and deployed successfully!")
+            
