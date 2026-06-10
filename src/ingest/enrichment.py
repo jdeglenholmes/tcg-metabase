@@ -35,7 +35,7 @@ MULTI_BODY_POKEMON = {
 ART_TAXONOMY_MAPPING = {
     "a minimalist illustration with a mostly blank white background, vast empty space, very simple and clean": "minimalist",
     "a chaotic maximalist scene packed with dozens of overlapping background objects, incredibly busy and dense scenery": "maximalist",
-    "a traditional hand-painted watercolor painting on textured paper, visible wet brush strokes, physical medium": "traditional_watercolor",
+   "A traditional hand-painted artwork or physical drawing featuring visible brush strokes, paint layers, canvas texture, paper grain, or analog artistic mediums like watercolor, gouache, oil, acrylic, and ink": "traditional_hand_painted",
     "a highly polished 3D computer render, sharp digital vector graphics, smooth gradients, crisp modern digital art": "crisp_digital_portrait",
     "a dramatic cinematic action shot, extreme lighting, glowing neon particle effects, deep shadows, dynamic camera angle": "cinematic",
     "a physical handcrafted 3D diorama, photographed claymation figure, tactile felt craft model, real world macro photography": "handcrafted_diorama",

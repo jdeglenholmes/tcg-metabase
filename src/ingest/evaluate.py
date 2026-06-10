@@ -7,10 +7,9 @@ from src.database.connection import get_engine
 
 # --- FINAL TAXONOMIES ---
 ART_STYLE_KEYS = [
-    "minimalist", "maximalist", "traditional_watercolor", 
+    "minimalist", "maximalist", "traditional_hand_painted", 
     "crisp_digital_portrait", "cinematic", "handcrafted_diorama", 
-    "surrealist", "standard_generic",
-    "pop_art", "comic_book_illustration"
+    "surrealist", "standard_generic", "pop_art", "comic_book_illustration"
 ]
 
 AESTHETIC_KEYS = [
