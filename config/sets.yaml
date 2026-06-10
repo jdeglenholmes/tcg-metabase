@@ -8,6 +8,9 @@ sets:
   "mega-evolution": "me1"
   
   # Scarlet & Violet Expansion:
+  "white-flare": "sv11w" 
+  "black-bolt": "sv11b"
+  "destined-rivals": "sv10"     # Keep this! It will resolve once the API updates.
   "journey-together": "sv9"
   "prismatic-evolutions": "sv8pt5"
   "surging-sparks": "sv8"

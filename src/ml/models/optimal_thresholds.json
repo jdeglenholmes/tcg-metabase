@@ -1,0 +1,20 @@
+{
+    "chaotic": 0.204,
+    "cinematic": 0.483,
+    "comic_book_illustration": 0.15,
+    "crisp_digital_portrait": 0.15,
+    "handcrafted_diorama": 0.37,
+    "has_cameo": 0.213,
+    "is_trainer_gallery": 0.15,
+    "kinetic": 0.271,
+    "legendary": 0.243,
+    "maximalist": 0.276,
+    "minimalist": 0.194,
+    "modern": 0.235,
+    "neutral": 0.15,
+    "pop_art": 0.251,
+    "standard_generic": 0.34,
+    "surrealist": 0.15,
+    "traditional_hand_painted": 0.248,
+    "whimsical": 0.15
+}

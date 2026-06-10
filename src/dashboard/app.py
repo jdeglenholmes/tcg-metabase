@@ -9,6 +9,27 @@ import json
 import re  
 from sqlalchemy import text
 from src.database.connection import get_engine
+import joblib
+import ast
+import os
+import numpy as np
+
+import requests
+
+@st.cache_data(ttl=86400) # Caches the data for 24 hours to prevent API spam
+def fetch_all_pokemon_sets():
+    """Fetches all sets dynamically from the Pokémon TCG API."""
+    try:
+        response = requests.get("https://api.pokemontcg.io/v2/sets")
+        if response.status_code == 200:
+            sets = response.json().get('data', [])
+            # Sort them by release date, newest first!
+            return sorted(sets, key=lambda x: x.get('releaseDate', ''), reverse=True)
+        else:
+            return []
+    except Exception as e:
+        st.error(f"Failed to fetch sets: {e}")
+        return []
 
 st.set_page_config(page_title="TCG ML Studio", layout="wide", page_icon="🎴")
 
@@ -120,7 +141,11 @@ def get_labeling_state(selected_set, current_user):
     engine = get_engine()
     with engine.connect() as conn:
         # 🚨 Notice we now select 'illustrator' for our QA Audit
-        query = "SELECT card_id, name, illustrator, image_url, labeled_by, tags FROM tcg_cards WHERE card_id LIKE :prefix AND image_url IS NOT NULL;"
+        query = """
+        SELECT card_id, name, illustrator, image_url, labeled_by, tags, image_embedding 
+        FROM tcg_cards 
+        WHERE card_id LIKE :prefix AND image_url IS NOT NULL;
+        """
         db_df = pd.read_sql_query(text(query), conn, params={"prefix": f"{selected_set}-%"})
         
     user_history = pd.DataFrame()
@@ -205,78 +230,127 @@ if app_mode in ["📥 Data Ingestor", "🏷️ Data Labeler"]:
 # ==========================================
 if app_mode == "📥 Data Ingestor":
     st.title("📥 Data Ingestor")
-    st.write("Manage raw API data and run machine learning enrichment pipelines.")
+    st.write("Manage raw API data and generate visual embeddings for the Active Learning pipeline.")
     
-    st.subheader("🚀 Bulk Operations (Auto-ML)")
-    st.write("Instantly run the machine learning pipeline on every set that contains human tags.")
+    # --- 1. DATASET HEALTH DASHBOARD ---
+    st.subheader("📊 Dataset Health")
+    with engine.connect() as conn:
+        # Safely fetch database metrics
+        total_cards = conn.execute(text("SELECT COUNT(*) FROM tcg_cards")).scalar() or 0
+        total_sets = conn.execute(text("SELECT COUNT(DISTINCT split_part(card_id, '-', 1)) FROM tcg_cards")).scalar() or 0
+        total_embeddings = conn.execute(text("SELECT COUNT(*) FROM tcg_cards WHERE image_embedding IS NOT NULL")).scalar() or 0
+        total_labeled = conn.execute(text("SELECT COUNT(*) FROM tcg_cards WHERE tags IS NOT NULL")).scalar() or 0
+        
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Cards Ingested", f"{total_cards:,}")
+    m2.metric("Sets Tracked", f"{total_sets:,}")
     
-    if st.button("⚡ Auto-Enrich All Tagged Sets", use_container_width=True, type="primary"):
-        with engine.connect() as conn:
-            tagged_sets_query = text("SELECT DISTINCT LOWER(split_part(card_id, '-', 1)) FROM tcg_cards WHERE tags IS NOT NULL;")
-            sets_to_process = [r[0] for r in conn.execute(tagged_sets_query).fetchall() if r[0]]
-            
-        if not sets_to_process:
-            st.info("No tagged cards found in the database yet!")
-        else:
-            st.success(f"🎯 Found {len(sets_to_process)} sets with human tags. Commencing Bulk Enrichment...")
-            success_count = 0
-            for s_prefix in sets_to_process:
-                enrich_cmd = [sys.executable, "-m", "src.ingest.run", "--enrich", "--set_name", s_prefix]
-                is_ok, _ = run_pipeline_live(enrich_cmd, f"Auto-Enriching: {format_set_name(s_prefix)}")
-                if is_ok: success_count += 1
-                    
-            if success_count == len(sets_to_process):
-                st.balloons()
-                st.success("✅ All tagged sets are fully enriched! Ready for Model Testing.")
-            else:
-                st.warning(f"⚠️ Processed {success_count}/{len(sets_to_process)} sets. Check the logs.")
+    # Calculate embedding coverage percentage safely
+    pct_embedded = (total_embeddings / max(total_cards, 1)) * 100
+    m3.metric("Embeddings Generated", f"{total_embeddings:,}", f"{pct_embedded:.1f}% Coverage", delta_color="normal")
     
+    m4.metric("Human Verified Labels", f"{total_labeled:,}")
     st.write("---")
-    st.subheader(f"🛠️ Single Set Maintenance: {format_set_name(selected_set)}")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📥 1. Ingest Raw API Data", use_container_width=True):
-            reverse_yaml = {v: k for k, v in RAW_YAML_SETS.items()}
-            slug_to_ingest = reverse_yaml.get(selected_set, selected_set)
-            success, _ = run_pipeline_live([sys.executable, "-m", "src.ingest.run", "--ingest", "--set_name", slug_to_ingest], f"Ingesting: {selected_set}")
-            if success: st.rerun()
-                
-    with col2:
-        if st.button("🧠 2. Run ML Enrichment", use_container_width=True):
-            success, _ = run_pipeline_live([sys.executable, "-m", "src.ingest.run", "--enrich", "--set_name", selected_set], f"Enriching: {selected_set}")
-            if success: st.rerun()
-
-    with st.expander("⚠️ Advanced Set Maintenance", expanded=False):
-        st.warning(f"**Danger Zone:** These actions will modify existing records for **{format_set_name(selected_set)}**.")
-        if st.button("🔄 Reset Enrichment Status", type="secondary"):
-            with engine.begin() as conn:
-                conn.execute(text("""
-                    UPDATE tcg_cards SET enrichment_status = 'pending', art_style = NULL, card_aesthetic = NULL, image_embedding = NULL
-                    WHERE LOWER(set_id) = :set_id;
-                """), {"set_id": selected_set.lower()})
-            st.success(f"✅ Reset complete! {format_set_name(selected_set)} is ready to be re-enriched.")
-
-        st.markdown("**Retry Failed Cards**: Safely queues only the 'failed' or 'skipped' cards for another attempt. Ignores successfully processed cards.")
-        if st.button("♻️ Queue Failed/Skipped for Retry", type="primary"):
-            with engine.begin() as conn:
-                # Notice the strict WHERE clause targeting ONLY failures
-                retry_query = text("""
-                    UPDATE tcg_cards 
-                    SET enrichment_status = 'pending'
-                    WHERE LOWER(set_id) = :set_id 
-                      AND enrichment_status IN ('failed', 'skipped');
-                """)
-                result = conn.execute(retry_query, {"set_id": selected_set.lower()})
-                affected_rows = result.rowcount
-                
-            if affected_rows > 0:
-                st.success(f"✅ Successfully queued {affected_rows} failed/skipped cards back to 'pending'. Click 'Run ML Enrichment' to try them again.")
+    # Fetch all sets dynamically for the dropdown
+    all_sets = fetch_all_pokemon_sets()
+    
+    # 1. Run a single highly efficient SQL query to get the exact status of every set in your DB
+    db_status_query = text("""
+        SELECT 
+            split_part(card_id, '-', 1) as set_prefix, 
+            COUNT(*) as total_cards, 
+            SUM(CASE WHEN image_embedding IS NOT NULL THEN 1 ELSE 0 END) as embedded_cards
+        FROM tcg_cards 
+        GROUP BY set_prefix;
+    """)
+    
+    with engine.connect() as conn:
+        db_results = conn.execute(db_status_query).fetchall()
+        
+    # Convert SQL results into a quick lookup dictionary
+    db_state = {row.set_prefix: {'total': row.total_cards, 'embedded': row.embedded_cards} for row in db_results}
+    
+    # 2. Build the dropdown options with the Traffic Light logic
+    set_options = {}
+    if all_sets:
+        for s in all_sets:
+            set_id = s['id']
+            set_name = s['name']
+            
+            # Check this specific API set against our Database state
+            state = db_state.get(set_id)
+            
+            if not state or state['total'] == 0:
+                status_icon = "🔴"  # Not ingested at all
+            elif state['embedded'] < state['total']:
+                status_icon = "🟡"  # Ingested, but missing embeddings
             else:
-                st.info("👍 No failed or skipped cards found in this set!")
+                status_icon = "🟢"  # Fully ingested and embedded (Ready!)
+                
+            set_options[set_id] = f"{status_icon} {set_name} ({set_id})"
+
+    # --- TWO COLUMN LAYOUT ---
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.subheader("🎯 Targeted Ingestion")
+        st.info("Legend: 🔴 Not Ingested | 🟡 Missing Embeddings | 🟢 Ready for Labeler")
+        
+        selected_set_id = st.selectbox(
+            "Search and select a set:", 
+            options=list(set_options.keys()), 
+            format_func=lambda x: set_options.get(x, x)
+        )
+        
+        if st.button("📥 Ingest & Process Target Set", type="primary", use_container_width=True):
+            # Phase 1: Ingest
+            success_ingest, _ = run_pipeline_live(
+                [sys.executable, "-m", "src.ingest.run", "--ingest", "--set_name", selected_set_id], 
+                f"Ingesting API Data: {set_options[selected_set_id]}"
+            )
+            
+            # Phase 2: Instantly Enrich (ONLY if Phase 1 succeeded)
+            if success_ingest:
+                success_enrich, _ = run_pipeline_live(
+                    [sys.executable, "-m", "src.ingest.run", "--enrich", "--set_name", selected_set_id], 
+                    f"Generating Visual Embeddings: {set_options[selected_set_id]}"
+                )
+                if success_enrich:
+                    st.success(f"✨ {selected_set_id} fully processed and ready for the Data Labeler!")
+                else:
+                    st.error("⚠️ Ingestion succeeded, but visual embedding generation failed.")
+            else:
+                # FIX 3: Catch the ingestion failure and stop the pipeline!
+                st.error(f"❌ Ingestion completely failed for '{selected_set_id}'. The pipeline has been halted.")
+                
+    with col_right:
+        st.subheader("🌍 Bulk Operations")
+        st.warning("These operations scan the entire database. They may take a significant amount of time depending on hardware limits.")
+        
+        # Safe Bulk Action 1: Fill missing gaps
+        if st.button("🧠 Process All Missing Embeddings", use_container_width=True):
+            st.caption("Scans all ingested cards and generates embeddings for any that are missing.")
+            success, _ = run_pipeline_live(
+                [sys.executable, "-m", "src.ingest.run", "--enrich"], 
+                "Bulk Generating Missing Embeddings"
+            )
+            if success: st.rerun()
+
+        # Heavy Bulk Action 2: The "Do Everything" button
+        st.markdown("**Mass API Sync**")
+        if st.button("⚠️ Ingest & Process ALL API Sets", use_container_width=True):
+            st.error("This will attempt to ingest 15,000+ cards from the Pokémon API and run them through the Neural Network. Are you sure?")
+            if st.button("🚨 Yes, Execute Mass Sync"):
+                for s_id in set_options.keys():
+                    # Sequential loop for the entire API history
+                    st.toast(f"Starting {s_id}...")
+                    run_pipeline_live([sys.executable, "-m", "src.ingest.run", "--ingest", "--set_name", s_id], f"Ingesting {s_id}")
+                    run_pipeline_live([sys.executable, "-m", "src.ingest.run", "--enrich", "--set_name", s_id], f"Embedding {s_id}")
+                st.balloons()
 
 # ==========================================
-# MODULE 2: DATA LABELER (With Embedded QA)
+# MODULE 2: DATA LABELER (With Embedded QA & AI Assist)
 # ==========================================
 elif app_mode == "🏷️ Data Labeler":
     st.title(f"🏷️ Labeler: {format_set_name(selected_set)}")
@@ -333,13 +407,49 @@ elif app_mode == "🏷️ Data Labeler":
         if selected_id in qa_flags:
             st.warning(f"**QA Flag on this card:** {qa_flags[selected_id]}")
             
+        # --- LOAD THE CUSTOM AI MODEL ---
+        ai_model = None
+        model_path = os.path.join("src", "ml", "models", "custom_classifier.pkl")
+        if os.path.exists(model_path):
+            ai_model = joblib.load(model_path)
+
         existing_data = {}
+        is_ai_guess = False
+        
+        # --- STATE 1: HUMAN EDITS ---
         if selected_id in user_history_ids:
             tags_data = user_history[user_history['card_id'] == selected_id].iloc[0].get('tags', {})
             if isinstance(tags_data, str):
                 try: tags_data = json.loads(tags_data)
                 except: tags_data = {}
             for k in ALL_KEYS: existing_data[k] = bool(tags_data.get(k, 0))
+            st.info("👤 You have previously labeled this card. Editing mode.")
+            
+        # --- STATE 2: AI PRE-FILL (ACTIVE LEARNING) ---
+        elif ai_model is not None and current_card.get('image_embedding'):
+            try:
+                # Convert the string embedding from the DB back to a numpy array
+                embedding_str = current_card['image_embedding']
+                embedding_list = ast.literal_eval(embedding_str)
+                X_input = np.array(embedding_list).reshape(1, -1)
+                
+                # Ask the model for probabilities and apply the custom 25% threshold
+                y_probs = ai_model.predict_proba(X_input)
+                for idx, key in enumerate(ALL_KEYS):
+                    prob_true = y_probs[idx][0, 1]
+                    existing_data[key] = bool(prob_true >= 0.25)
+                    
+                is_ai_guess = True
+                st.success("🤖 AI has pre-filled its best guesses! Please verify and correct.")
+            except Exception as e:
+                st.warning(f"AI Prediction failed: {e}")
+                
+        # --- STATE 3: BLANK MANUAL FALLBACK ---
+        else:
+            if ai_model is None:
+                st.caption("No AI model found. Manual labeling mode. (Go train the model!)")
+            else:
+                st.caption("Embedding missing for this card. Manual labeling mode.")
 
         with st.form(key=f"label_form_{selected_id}", clear_on_submit=False):
             tab_art, tab_aes, tab_feat = st.tabs(["🎨 Art Styles", "✨ Card Aesthetics", "🔍 Card Features"])
@@ -350,14 +460,21 @@ elif app_mode == "🏷️ Data Labeler":
                 for idx, key in enumerate(keys):
                     display_name = key.replace('_', ' ').title()
                     target_col = col_a if idx % 2 == 0 else col_b
-                    selections[key] = target_col.checkbox(display_name, value=existing_data.get(key, False))
+                    
+                    # Highlight the specific boxes the AI triggered
+                    label = f"✨ {display_name}" if (is_ai_guess and existing_data.get(key, False)) else display_name
+                    selections[key] = target_col.checkbox(label, value=existing_data.get(key, False))
 
             render_checkboxes(ART_STYLE_KEYS, tab_art)
             render_checkboxes(AESTHETIC_KEYS, tab_aes)
             render_checkboxes(BINARY_FEATURES, tab_feat)
             
             st.write("---")
-            if st.form_submit_button("💾 Save & Auto-Advance", use_container_width=True, type="primary"):
+            
+            # Dynamic button text based on whether the human is creating from scratch or verifying the AI
+            button_text = "💾 Save Human Verification & Auto-Advance" if is_ai_guess else "💾 Save & Auto-Advance"
+            
+            if st.form_submit_button(button_text, use_container_width=True, type="primary"):
                 save_label_to_db(selected_id, user_name, selections)
                 current_idx = card_list.index(selected_id)
                 if current_idx + 1 < len(card_list): st.session_state["advance_to"] = card_list[current_idx + 1]
