@@ -201,10 +201,10 @@ def run_local_audit(user_history_df):
 
 # --- HYPER-CLEAN SIDEBAR ---
 st.sidebar.title("🎴 TCG ML Studio")
-user_name = st.sidebar.text_input("User Name", placeholder="👤 User Name...", label_visibility="collapsed")
+user_name = st.sidebar.text_input("User Name", placeholder="👤 i.e. Jacob", label_visibility="collapsed")
 
 if not user_name:
-    st.info("👈 Please enter your user name in the sidebar to access the studio.")
+    st.info("👈 Please enter your name to access the studio.")
     st.stop()
 
 st.sidebar.write("---")
@@ -350,15 +350,17 @@ if app_mode == "📥 Data Ingestor":
                 st.balloons()
 
 # ==========================================
-# MODULE 2: DATA LABELER (With Embedded QA & AI Assist)
+# MODULE 2: DATA LABELER (With Active Learning 2.0)
 # ==========================================
 elif app_mode == "🏷️ Data Labeler":
     st.title(f"🏷️ Labeler: {format_set_name(selected_set)}")
     
     db_df, user_history = get_labeling_state(selected_set, user_name)
-    
+    if 'supertype' in db_df.columns:
+        db_df = db_df[db_df['supertype'] == 'Pokémon']
+        
     if db_df.empty:
-        st.warning("No cards found for this set. Please run Ingestion in the Data Ingestor!")
+        st.warning("No Pokémon cards found for this set. Please run Ingestion in the Data Ingestor!")
         st.stop()
         
     user_history_ids = user_history['card_id'].values if not user_history.empty else []
@@ -371,18 +373,79 @@ elif app_mode == "🏷️ Data Labeler":
         cid = row['card_id']
         prefix = "🚨 " if cid in qa_flags else ("✅ " if cid in user_history_ids else "")
         display_map[cid] = f"{prefix}{row['name']} / {cid.split('-')[-1]}"
+
+    # --- LOAD THE MULTI-MODAL AI MODEL & THRESHOLDS ---
+    ai_model = None
+    optimal_thresholds = {}
     
+    model_path = os.path.join(PROJECT_ROOT, "src", "ml", "models", "custom_classifier.pkl")
+    if os.path.exists(model_path):
+        ai_model = joblib.load(model_path)
+        
+    threshold_path = os.path.join(PROJECT_ROOT, "src", "ml", "models", "optimal_thresholds.json")
+    if os.path.exists(threshold_path):
+        with open(threshold_path, "r") as f:
+            optimal_thresholds = json.load(f)
+
+    # --- ACTIVE LEARNING SORTING LOGIC ---
+    card_list = db_df['card_id'].tolist()
+    unlabeled_df = db_df[~db_df['card_id'].isin(user_history_ids)]
+    
+    col_sort1, col_sort2 = st.columns([2, 1])
+    with col_sort1:
+        sort_mode = st.radio("🧠 AI Sorting Engine:", ["Sequential (Set Order)", "Active Learning (Maximum Confusion First)"], horizontal=True)
+    
+    if sort_mode == "Active Learning (Maximum Confusion First)" and ai_model is not None and not unlabeled_df.empty:
+        with st.spinner("AI is analyzing the set to find the hardest cards..."):
+            uncertainties = []
+            valid_unlabeled = []
+            
+            for _, row in unlabeled_df.iterrows():
+                if row.get('image_embedding'):
+                    try:
+                        # Reconstruct the exact DataFrame format
+                        emb_list = ast.literal_eval(row['image_embedding'])
+                        input_data = {f'emb_{i}': [val] for i, val in enumerate(emb_list)}
+                        input_data['illustrator'] = [row.get('illustrator') or 'Unknown']
+                        input_data['has_trainer'] = [int(row.get('has_trainer') or 0)]
+                        X_input = pd.DataFrame(input_data)
+                        
+                        y_probs = ai_model.predict_proba(X_input)
+                        
+                        # Find the absolute closest distance to any threshold
+                        min_distance = 1.0
+                        for idx, key in enumerate(ALL_KEYS):
+                            prob = y_probs[idx][0, 1]
+                            thresh = optimal_thresholds.get(key, 0.5)
+                            distance = abs(prob - thresh)
+                            if distance < min_distance:
+                                min_distance = distance
+                                
+                        valid_unlabeled.append(row['card_id'])
+                        uncertainties.append(min_distance)
+                    except Exception:
+                        pass
+                        
+            if valid_unlabeled:
+                # Sort ascending (Lowest distance from threshold = Highest Confusion)
+                sorted_pairs = sorted(zip(uncertainties, valid_unlabeled))
+                sorted_unlabeled_ids = [c for _, c in sorted_pairs]
+                # Rebuild card list: Confusing Unlabeled First, then Labeled
+                card_list = sorted_unlabeled_ids + [c for c in card_list if c not in sorted_unlabeled_ids]
+                st.toast("🔥 Queue sorted by Maximum Confusion!")
+
     # --- TOP NAVIGATION BAR ---
+    st.write("---")
     nav_col1, nav_col2, nav_col3 = st.columns([2, 1, 1])
     with nav_col1:
-        card_list = db_df['card_id'].tolist()
-        if "nav_selectbox" in st.session_state and st.session_state["nav_selectbox"] not in card_list: del st.session_state["nav_selectbox"]
+        if "nav_selectbox" in st.session_state and st.session_state["nav_selectbox"] not in card_list: 
+            del st.session_state["nav_selectbox"]
         if "advance_to" in st.session_state:
-            if st.session_state["advance_to"] in card_list: st.session_state["nav_selectbox"] = st.session_state["advance_to"]
+            if st.session_state["advance_to"] in card_list: 
+                st.session_state["nav_selectbox"] = st.session_state["advance_to"]
             del st.session_state["advance_to"]
         elif "nav_selectbox" not in st.session_state:
-            unlabeled_df = db_df[~db_df['card_id'].isin(user_history_ids)]
-            st.session_state["nav_selectbox"] = unlabeled_df.iloc[0]['card_id'] if not unlabeled_df.empty else card_list[0]
+            st.session_state["nav_selectbox"] = card_list[0]
                 
         selected_id = st.selectbox("card_nav", options=card_list, format_func=lambda x: display_map[x], key="nav_selectbox", label_visibility="collapsed")
         current_card = db_df[db_df['card_id'] == selected_id].iloc[0]
@@ -392,31 +455,23 @@ elif app_mode == "🏷️ Data Labeler":
         
     st.write("---")
     
-    # --- QA WARNING BANNER ---
     if qa_flags:
-        st.error(f"🚨 **Quality Assurance Alert:** {len(qa_flags)} labeled cards in this set conflict with known Artist rules. Check the dropdown menu for the 🚨 icon.")
+        st.error(f"🚨 **Quality Assurance Alert:** {len(qa_flags)} labeled cards conflict with known rules. Check dropdown menu.")
     
     # --- MAIN LABELING AREA ---
     col1, col2 = st.columns([1, 2]) 
     with col1:
         st.image(current_card['image_url'], use_container_width=True)
-        st.caption(f"**Illustrator:** {current_card['illustrator']}")
+        st.caption(f"**Illustrator:** {current_card['illustrator']} | **Trainer Art:** {current_card.get('has_trainer', False)}")
         
     with col2:
-        # Show specific QA error for the active card
         if selected_id in qa_flags:
-            st.warning(f"**QA Flag on this card:** {qa_flags[selected_id]}")
-            
-        # --- LOAD THE CUSTOM AI MODEL ---
-        ai_model = None
-        model_path = os.path.join("src", "ml", "models", "custom_classifier.pkl")
-        if os.path.exists(model_path):
-            ai_model = joblib.load(model_path)
+            st.warning(f"**QA Flag:** {qa_flags[selected_id]}")
 
         existing_data = {}
         is_ai_guess = False
         
-        # --- STATE 1: HUMAN EDITS ---
+        # STATE 1: HUMAN EDITS
         if selected_id in user_history_ids:
             tags_data = user_history[user_history['card_id'] == selected_id].iloc[0].get('tags', {})
             if isinstance(tags_data, str):
@@ -425,31 +480,32 @@ elif app_mode == "🏷️ Data Labeler":
             for k in ALL_KEYS: existing_data[k] = bool(tags_data.get(k, 0))
             st.info("👤 You have previously labeled this card. Editing mode.")
             
-        # --- STATE 2: AI PRE-FILL (ACTIVE LEARNING) ---
+        # STATE 2: AI PRE-FILL
         elif ai_model is not None and current_card.get('image_embedding'):
             try:
-                # Convert the string embedding from the DB back to a numpy array
-                embedding_str = current_card['image_embedding']
-                embedding_list = ast.literal_eval(embedding_str)
-                X_input = np.array(embedding_list).reshape(1, -1)
+                emb_str = current_card['image_embedding']
+                emb_list = ast.literal_eval(emb_str)
                 
-                # Ask the model for probabilities and apply the custom 25% threshold
+                input_data = {f'emb_{i}': [val] for i, val in enumerate(emb_list)}
+                input_data['illustrator'] = [current_card.get('illustrator') or 'Unknown']
+                input_data['has_trainer'] = [int(current_card.get('has_trainer') or 0)]
+                X_input = pd.DataFrame(input_data)
+                
                 y_probs = ai_model.predict_proba(X_input)
+                
                 for idx, key in enumerate(ALL_KEYS):
                     prob_true = y_probs[idx][0, 1]
-                    existing_data[key] = bool(prob_true >= 0.25)
+                    tag_thresh = optimal_thresholds.get(key, 0.25)
+                    existing_data[key] = bool(prob_true >= tag_thresh)
                     
                 is_ai_guess = True
-                st.success("🤖 AI has pre-filled its best guesses! Please verify and correct.")
+                st.success("🤖 Multi-Modal AI has pre-filled its best guesses!")
             except Exception as e:
                 st.warning(f"AI Prediction failed: {e}")
                 
-        # --- STATE 3: BLANK MANUAL FALLBACK ---
         else:
-            if ai_model is None:
-                st.caption("No AI model found. Manual labeling mode. (Go train the model!)")
-            else:
-                st.caption("Embedding missing for this card. Manual labeling mode.")
+            if ai_model is None: st.caption("No AI model found. Manual labeling mode.")
+            else: st.caption("Embedding missing for this card. Manual labeling mode.")
 
         with st.form(key=f"label_form_{selected_id}", clear_on_submit=False):
             tab_art, tab_aes, tab_feat = st.tabs(["🎨 Art Styles", "✨ Card Aesthetics", "🔍 Card Features"])
@@ -460,8 +516,6 @@ elif app_mode == "🏷️ Data Labeler":
                 for idx, key in enumerate(keys):
                     display_name = key.replace('_', ' ').title()
                     target_col = col_a if idx % 2 == 0 else col_b
-                    
-                    # Highlight the specific boxes the AI triggered
                     label = f"✨ {display_name}" if (is_ai_guess and existing_data.get(key, False)) else display_name
                     selections[key] = target_col.checkbox(label, value=existing_data.get(key, False))
 
@@ -470,11 +524,9 @@ elif app_mode == "🏷️ Data Labeler":
             render_checkboxes(BINARY_FEATURES, tab_feat)
             
             st.write("---")
+            btn_text = "💾 Save Human Verification & Auto-Advance" if is_ai_guess else "💾 Save & Auto-Advance"
             
-            # Dynamic button text based on whether the human is creating from scratch or verifying the AI
-            button_text = "💾 Save Human Verification & Auto-Advance" if is_ai_guess else "💾 Save & Auto-Advance"
-            
-            if st.form_submit_button(button_text, use_container_width=True, type="primary"):
+            if st.form_submit_button(btn_text, use_container_width=True, type="primary"):
                 save_label_to_db(selected_id, user_name, selections)
                 current_idx = card_list.index(selected_id)
                 if current_idx + 1 < len(card_list): st.session_state["advance_to"] = card_list[current_idx + 1]

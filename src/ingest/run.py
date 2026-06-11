@@ -122,10 +122,10 @@ def upsert_card_data(conn, card_data):
     query_card = text("""
         INSERT INTO tcg_cards (
             card_id, name, illustrator, rarity, set_id, 
-            market_price, image_url, has_trainer, variants
+            market_price, image_url, has_trainer, variants, supertype
         ) VALUES (
             :card_id, :name, :illustrator, :rarity, :set_id, 
-            :market_price, :image_url, :has_trainer, :variants
+            :market_price, :image_url, :has_trainer, :variants, :supertype
         )
         ON CONFLICT (card_id) DO UPDATE SET
             name = EXCLUDED.name,
@@ -134,7 +134,8 @@ def upsert_card_data(conn, card_data):
             market_price = EXCLUDED.market_price,
             image_url = EXCLUDED.image_url,
             has_trainer = EXCLUDED.has_trainer,
-            variants = EXCLUDED.variants;
+            variants = EXCLUDED.variants,
+            supertype = EXCLUDED.supertype;
     """)
     conn.execute(query_card, {
         "card_id": str(card_data['id']),
@@ -145,7 +146,8 @@ def upsert_card_data(conn, card_data):
         "market_price": float(card_data['market_price'] or 0.0),
         "image_url": str(card_data['image_url']),
         "has_trainer": bool(card_data['is_trainer_card']),
-        "variants": json.dumps(card_data['variants'])
+        "variants": json.dumps(card_data['variants']),
+        "supertype": str(card_data['supertype'])[:50]
     })
 
 def main():
@@ -201,6 +203,7 @@ def main():
                 parsed_card = {
                     'id': card['id'],
                     'name': card.get('name') or "Unknown",
+                    'supertype': card.get('supertype') or "Unknown",
                     'is_trainer_card': check_has_trainer_art(card), 
                     'illustrator': card.get('artist') or "Unknown",
                     'rarity': card.get('rarity') or "Unknown",
