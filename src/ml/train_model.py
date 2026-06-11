@@ -40,7 +40,8 @@ def main():
         SELECT tags, image_embedding, illustrator, has_trainer 
         FROM tcg_cards 
         WHERE tags IS NOT NULL 
-        AND image_embedding IS NOT NULL;
+        AND image_embedding IS NOT NULL
+        AND supetype = 'Pokemon';
     """
     
     with engine.connect() as conn:
