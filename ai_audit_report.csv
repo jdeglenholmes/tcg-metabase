@@ -1,0 +1,150 @@
+card_id,card_name,tag_in_question,issue_type,human_said,ai_confidence,ai_threshold_was
+sv2-208,Frigibax,minimalist,False Positive,YES,99.9% NO,15.0%
+swsh8-268,Mew VMAX,minimalist,False Positive,YES,99.9% NO,15.0%
+sm9-26,Psyduck,cinematic,False Positive,YES,99.9% NO,15.0%
+me3-93,Dedenne,minimalist,False Positive,YES,99.8% NO,15.0%
+me2pt5-287,Marnie's Grimmsnarl ex,cinematic,False Positive,YES,99.8% NO,15.0%
+sv2-206,Quaxly,cinematic,False Positive,YES,99.6% NO,15.0%
+sv8pt5-164,Gholdengo ex,crisp_digital_portrait,False Positive,YES,99.5% NO,38.6%
+me2pt5-226,Psyduck,handcrafted_diorama,False Positive,YES,99.5% NO,19.0%
+sm9-2,Weedle,has_cameo,False Positive,YES,99.5% NO,22.4%
+sv4pt5-19,Raichu,cinematic,False Positive,YES,99.4% NO,15.0%
+me4-87,Chespin,cinematic,False Positive,YES,99.2% NO,15.0%
+sv1-44,Magikarp,has_cameo,False Positive,YES,98.8% NO,22.4%
+me3-118,Mega Starmie ex,cinematic,False Positive,YES,98.8% NO,15.0%
+sv6pt5-1,Joltik,cinematic,False Positive,YES,98.6% NO,15.0%
+sv8pt5-180,Terapagos ex,minimalist,False Positive,YES,98.6% NO,15.0%
+sv4-114,Purrloin,minimalist,False Positive,YES,98.5% NO,15.0%
+sv8pt5-164,Gholdengo ex,modern,False Positive,YES,98.5% NO,37.4%
+sm9-168,Cobalion-GX,neutral,False Positive,YES,98.5% NO,20.2%
+sv8pt5-179,Pikachu ex,minimalist,False Positive,YES,98.4% NO,15.0%
+swsh12tg-TG17,Mawile V,traditional_hand_painted,False Positive,YES,98.4% NO,21.8%
+sm9-24,Wartortle,kinetic,False Positive,YES,98.4% NO,50.9%
+swsh11tg-TG03,Charizard,standard_generic,False Positive,YES,98.4% NO,15.0%
+sv2-217,Tinkatuff,pop_art,False Positive,YES,98.0% NO,17.2%
+sv8-6,Spewpa,minimalist,False Positive,YES,98.0% NO,15.0%
+sv1-210,Drowzee,surrealist,False Positive,YES,97.9% NO,15.0%
+me2pt5-238,Team Rocket's Mimikyu,is_trainer_gallery,False Positive,YES,97.9% NO,47.1%
+sv8pt5-151,Palafin ex,surrealist,False Positive,YES,97.8% NO,15.0%
+sv8pt5-162,Roaring Moon ex,surrealist,False Positive,YES,97.7% NO,15.0%
+sm9-182,Celebi & Venusaur-GX,whimsical,False Positive,YES,97.7% NO,16.3%
+me4-18,Delibird,pop_art,False Positive,YES,97.6% NO,17.2%
+swsh45sv-SV002,Dartrix,legendary,False Positive,YES,97.5% NO,15.0%
+me4-91,Xerneas,standard_generic,False Positive,YES,97.5% NO,15.0%
+sv1-43,Slowbro,surrealist,False Positive,YES,97.5% NO,15.0%
+swsh12tg-TG21,Duraludon VMAX,maximalist,False Positive,YES,97.4% NO,21.1%
+mcd22-14,Drampa,surrealist,False Positive,YES,97.3% NO,15.0%
+sm9-26,Psyduck,kinetic,False Positive,YES,97.3% NO,50.9%
+me3-92,Aurorus,modern,False Positive,YES,97.2% NO,37.4%
+sv8pt5-154,Iron Hands ex,legendary,False Positive,YES,97.2% NO,15.0%
+sv8pt5-168,Bloodmoon Ursaluna ex,legendary,False Positive,YES,97.2% NO,15.0%
+me2-100,Zacian,standard_generic,False Positive,YES,97.2% NO,15.0%
+me2pt5-241,Medicham,standard_generic,False Positive,YES,97.2% NO,15.0%
+mcd22-6,Lapras,legendary,False Positive,YES,97.1% NO,15.0%
+swsh45sv-SV002,Dartrix,standard_generic,False Positive,YES,97.1% NO,15.0%
+swsh11tg-TG21,Eternatus V,standard_generic,False Positive,YES,97.1% NO,15.0%
+sm9-24,Wartortle,modern,False Positive,YES,97.1% NO,37.4%
+swsh45sv-SV001,Rowlet,standard_generic,False Positive,YES,97.0% NO,15.0%
+sv8pt5-1,Exeggcute,standard_generic,False Positive,YES,97.0% NO,15.0%
+sv8pt5-165,Dragapult ex,legendary,False Positive,YES,97.0% NO,15.0%
+mcd22-11,Cutiefly,standard_generic,False Positive,YES,96.9% NO,15.0%
+sv8pt5-162,Roaring Moon ex,legendary,False Positive,YES,96.9% NO,15.0%
+sm9-24,Wartortle,crisp_digital_portrait,False Positive,YES,96.9% NO,38.6%
+sv8pt5-150,Glaceon ex,standard_generic,False Positive,YES,96.8% NO,15.0%
+sv8pt5-157,Iron Valiant ex,legendary,False Positive,YES,96.8% NO,15.0%
+sv8pt5-166,Raging Bolt ex,legendary,False Positive,YES,96.8% NO,15.0%
+sv1-4,Breloom,standard_generic,False Positive,YES,96.8% NO,15.0%
+swsh12tg-TG17,Mawile V,modern,False Positive,YES,96.8% NO,37.4%
+sv8pt5-161,Umbreon ex,legendary,False Positive,YES,96.8% NO,15.0%
+sv8-4,Durant ex,modern,False Positive,YES,96.7% NO,37.4%
+sv1-3,Shroomish,standard_generic,False Positive,YES,96.7% NO,15.0%
+me3-106,Mega Skarmory ex,maximalist,False Positive,YES,96.6% NO,21.1%
+mcd22-6,Lapras,standard_generic,False Positive,YES,96.5% NO,15.0%
+sv8pt5-19,Slowking,standard_generic,False Positive,YES,96.5% NO,15.0%
+sv2-262,Tinkaton ex,pop_art,False Positive,YES,96.5% NO,17.2%
+sv1-2,Heracross,standard_generic,False Positive,YES,96.5% NO,15.0%
+me2pt5-286,N's Zoroark ex,standard_generic,False Positive,YES,96.5% NO,15.0%
+sv8pt5-146,Flareon ex,standard_generic,False Positive,YES,96.4% NO,15.0%
+sv3pt5-200,Blastoise ex,minimalist,False Positive,YES,96.4% NO,15.0%
+sm9-37,Alolan Golem,chaotic,False Positive,YES,96.4% NO,15.0%
+swsh12tg-TG21,Duraludon VMAX,traditional_hand_painted,False Positive,YES,96.4% NO,21.8%
+mcd22-13,Pangoro,standard_generic,False Positive,YES,96.2% NO,15.0%
+me2pt5-231,Iono's Wattrel,is_trainer_gallery,False Positive,YES,96.1% NO,47.1%
+sv4-200,Mienshao,cinematic,False Positive,YES,96.1% NO,15.0%
+sv2-221,Paldean Wooper,standard_generic,False Positive,YES,96.0% NO,15.0%
+sv3pt5-143,Snorlax,whimsical,False Positive,YES,95.6% NO,16.3%
+sv6pt5-77,Fraxure,minimalist,False Positive,YES,95.5% NO,15.0%
+sv1-115,Sandile,minimalist,False Positive,YES,95.5% NO,15.0%
+me2pt5-280,Lillie's Clefairy ex,standard_generic,False Positive,YES,95.4% NO,15.0%
+me4-92,Claydol,crisp_digital_portrait,False Positive,YES,95.2% NO,38.6%
+me2-99,Yamper,traditional_hand_painted,False Positive,YES,95.1% NO,21.8%
+mcd22-6,Lapras,cinematic,False Positive,YES,95.0% NO,15.0%
+swsh11tg-TG22,Eternatus VMAX,kinetic,Missed Tag,NO,94.6% YES,50.9%
+me2pt5-243,Mightyena,comic_book_illustration,False Positive,YES,94.2% NO,62.4%
+sv6pt5-75,Zorua,cinematic,Missed Tag,NO,93.7% YES,15.0%
+sv2-219,Sudowoodo,comic_book_illustration,False Positive,YES,93.6% NO,62.4%
+me2pt5-227,Snorunt,comic_book_illustration,False Positive,YES,93.3% NO,62.4%
+me4-17,Octillery,kinetic,False Positive,YES,93.2% NO,50.9%
+swsh12tg-TG20,Rayquaza VMAX,modern,Missed Tag,NO,92.1% YES,37.4%
+me4-20,Froakie,kinetic,False Positive,YES,91.6% NO,50.9%
+me2pt5-227,Snorunt,minimalist,Missed Tag,NO,91.4% YES,15.0%
+swsh12pt5-103,Duraludon V,cinematic,Missed Tag,NO,91.3% YES,15.0%
+swsh8-268,Mew VMAX,modern,Missed Tag,NO,91.1% YES,37.4%
+swsh11tg-TG15,Centiskorch VMAX,is_trainer_gallery,False Positive,YES,90.3% NO,47.1%
+sm9-162,Pikachu & Zekrom-GX,modern,Missed Tag,NO,89.4% YES,37.4%
+sv3pt5-179,Mr. Mime,whimsical,Missed Tag,NO,89.3% YES,16.3%
+sv4-70,Iron Hands ex,kinetic,False Positive,YES,89.0% NO,50.9%
+sm9-168,Cobalion-GX,modern,Missed Tag,NO,88.2% YES,37.4%
+me1-179,Mega Lucario ex,comic_book_illustration,False Positive,YES,88.1% NO,62.4%
+me4-6,Quilladin,kinetic,False Positive,YES,87.7% NO,50.9%
+sv9-120,Dunsparce,neutral,Missed Tag,NO,87.5% YES,20.2%
+swsh12tg-TG20,Rayquaza VMAX,crisp_digital_portrait,Missed Tag,NO,87.0% YES,38.6%
+sm9-26,Psyduck,handcrafted_diorama,Missed Tag,NO,87.0% YES,19.0%
+me2pt5-244,Cynthia's Spiritomb,comic_book_illustration,False Positive,YES,86.2% NO,62.4%
+sm9-25,Blastoise,kinetic,False Positive,YES,85.7% NO,50.9%
+me1-68,Sandshrew,neutral,Missed Tag,NO,85.3% YES,20.2%
+me2-128,Mega Lopunny ex,modern,Missed Tag,NO,85.0% YES,37.4%
+me2-127,Mega Sharpedo ex,modern,Missed Tag,NO,84.8% YES,37.4%
+me1-177,Mega Venusaur ex,modern,Missed Tag,NO,84.5% YES,37.4%
+me2pt5-272,Mega Meganium ex,modern,Missed Tag,NO,84.5% YES,37.4%
+me2pt5-228,Weavile,whimsical,Missed Tag,NO,83.6% YES,16.3%
+sv4-114,Purrloin,neutral,Missed Tag,NO,82.4% YES,20.2%
+sv9-127,Noibat,neutral,Missed Tag,NO,82.1% YES,20.2%
+sm9-26,Psyduck,whimsical,Missed Tag,NO,82.1% YES,16.3%
+sv3pt5-198,Venusaur ex,comic_book_illustration,False Positive,YES,81.7% NO,62.4%
+sm9-4,Kakuna,neutral,Missed Tag,NO,79.9% YES,20.2%
+swsh11tg-TG19,Gallade V,modern,Missed Tag,NO,79.8% YES,37.4%
+swsh12pt5-98,Zamazenta V,modern,Missed Tag,NO,79.7% YES,37.4%
+me1-182,Mega Kangaskhan ex,modern,Missed Tag,NO,79.2% YES,37.4%
+sm9-171,Eevee & Snorlax-GX,has_cameo,Missed Tag,NO,75.5% YES,22.4%
+me4-34,Deoxys,comic_book_illustration,False Positive,YES,73.0% NO,62.4%
+me3-106,Mega Skarmory ex,modern,Missed Tag,NO,72.7% YES,37.4%
+me3-92,Aurorus,cinematic,Missed Tag,NO,71.3% YES,15.0%
+me2-102,Paldean Wooper,cinematic,Missed Tag,NO,71.2% YES,15.0%
+sv7-25,Turtonator,maximalist,Missed Tag,NO,70.8% YES,21.1%
+sv2-206,Quaxly,has_cameo,Missed Tag,NO,68.4% YES,22.4%
+me4-122,Mega Greninja ex,minimalist,Missed Tag,NO,68.0% YES,15.0%
+sv4-248,Iron Hands ex,minimalist,Missed Tag,NO,67.4% YES,15.0%
+sv8-138,Applin,neutral,Missed Tag,NO,66.6% YES,20.2%
+me2-9,Nymble,neutral,Missed Tag,NO,66.3% YES,20.2%
+me2pt5-228,Weavile,neutral,Missed Tag,NO,65.1% YES,20.2%
+me4-34,Deoxys,neutral,Missed Tag,NO,64.8% YES,20.2%
+me2-103,Toxtricity,maximalist,Missed Tag,NO,64.5% YES,21.1%
+sv6pt5-75,Zorua,neutral,Missed Tag,NO,64.0% YES,20.2%
+me2pt5-251,Sprigatito ex,neutral,Missed Tag,NO,64.0% YES,20.2%
+sv2-275,Ting-Lu ex,whimsical,Missed Tag,NO,63.4% YES,16.3%
+sv6pt5-77,Fraxure,cinematic,Missed Tag,NO,63.1% YES,15.0%
+sv8-240,Hydreigon ex,cinematic,Missed Tag,NO,61.7% YES,15.0%
+me2pt5-227,Snorunt,neutral,Missed Tag,NO,61.0% YES,20.2%
+sv3pt5-143,Snorlax,neutral,Missed Tag,NO,60.9% YES,20.2%
+me2pt5-278,Mega Eelektross ex,maximalist,Missed Tag,NO,60.7% YES,21.1%
+sv8-8,Morelull,neutral,Missed Tag,NO,59.8% YES,20.2%
+me4-92,Claydol,neutral,Missed Tag,NO,59.4% YES,20.2%
+swsh11tg-TG01,Parasect,has_cameo,Missed Tag,NO,58.8% YES,22.4%
+swsh12pt5-99,Zamazenta VSTAR,legendary,Missed Tag,NO,58.5% YES,15.0%
+swsh11tg-TG08,Hisuian Arcanine,whimsical,Missed Tag,NO,57.9% YES,16.3%
+sv3pt5-168,Charmander,neutral,Missed Tag,NO,56.8% YES,20.2%
+me2-76,Jigglypuff,whimsical,Missed Tag,NO,55.9% YES,16.3%
+sm9-24,Wartortle,whimsical,Missed Tag,NO,51.8% YES,16.3%
+mcd22-6,Lapras,is_trainer_gallery,False Positive,YES,100.0% NO,47.1%
+swsh6-121,Castform,handcrafted_diorama,False Positive,YES,100.0% NO,19.0%

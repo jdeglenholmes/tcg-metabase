@@ -50,6 +50,13 @@ AESTHETIC_KEYS = [
 BINARY_FEATURES = ["has_cameo", "is_trainer_gallery"]
 ALL_KEYS = ART_STYLE_KEYS + AESTHETIC_KEYS + BINARY_FEATURES
 
+TARGET_NAMES = [
+    'chaotic', 'cinematic', 'comic_book_illustration', 'crisp_digital_portrait', 
+    'handcrafted_diorama', 'has_cameo', 'is_trainer_gallery', 'kinetic', 
+    'legendary', 'maximalist', 'minimalist', 'modern', 'neutral', 'pop_art', 
+    'standard_generic', 'surrealist', 'traditional_hand_painted', 'whimsical'
+]
+
 # --- QUALITY ASSURANCE RULES ---
 ARTIST_ANCHORS = {
     "Asako Ito": "handcrafted_diorama",
@@ -396,35 +403,53 @@ elif app_mode == "🏷️ Data Labeler":
         sort_mode = st.radio("🧠 AI Sorting Engine:", ["Sequential (Set Order)", "Active Learning (Maximum Confusion First)"], horizontal=True)
     
     if sort_mode == "Active Learning (Maximum Confusion First)" and ai_model is not None and not unlabeled_df.empty:
-        with st.spinner("AI is analyzing the set to find the hardest cards..."):
-            uncertainties = []
+        with st.spinner("🧠 AI is bulk-analyzing the set..."):
             valid_unlabeled = []
+            input_rows = []
             
+            # 1. Bulk Data Preparation
             for _, row in unlabeled_df.iterrows():
                 if row.get('image_embedding'):
                     try:
-                        # Reconstruct the exact DataFrame format
                         emb_list = ast.literal_eval(row['image_embedding'])
-                        input_data = {f'emb_{i}': [val] for i, val in enumerate(emb_list)}
-                        input_data['illustrator'] = [row.get('illustrator') or 'Unknown']
-                        input_data['has_trainer'] = [int(row.get('has_trainer') or 0)]
-                        X_input = pd.DataFrame(input_data)
-                        
-                        y_probs = ai_model.predict_proba(X_input)
-                        
-                        # Find the absolute closest distance to any threshold
-                        min_distance = 1.0
-                        for idx, key in enumerate(ALL_KEYS):
-                            prob = y_probs[idx][0, 1]
-                            thresh = optimal_thresholds.get(key, 0.5)
-                            distance = abs(prob - thresh)
-                            if distance < min_distance:
-                                min_distance = distance
-                                
+                        # Build a flat dictionary for this row
+                        row_data = {f'emb_{i}': val for i, val in enumerate(emb_list)}
+                        row_data['illustrator'] = row.get('illustrator') or 'Unknown'
+                        row_data['has_trainer'] = int(row.get('has_trainer') or 0)
+                        input_rows.append(row_data)
                         valid_unlabeled.append(row['card_id'])
-                        uncertainties.append(min_distance)
                     except Exception:
                         pass
+                        
+            if input_rows:
+                # 2. RUN BATCH INFERENCE (Lightning Fast!)
+                X_batch = pd.DataFrame(input_rows)
+                y_probs = ai_model.predict_proba(X_batch)
+                
+                # 3. Calculate confusion scores mathematically (MAPPED CORRECTLY)
+                uncertainties = []
+                for i in range(len(valid_unlabeled)):
+                    min_distance = 1.0
+                    for class_idx, class_name in enumerate(TARGET_NAMES):
+                        # Safely get the probability for the positive class (index 1)
+                        if y_probs[class_idx].shape[1] > 1:
+                            prob = y_probs[class_idx][i, 1]
+                        else:
+                            prob = 0.0
+                            
+                        thresh = optimal_thresholds.get(class_name, 0.5)
+                        distance = abs(prob - thresh)
+                        if distance < min_distance:
+                            min_distance = distance
+                    uncertainties.append(min_distance)
+                        
+                # 4. Sort ascending (Lowest distance = Highest Confusion)
+                sorted_pairs = sorted(zip(uncertainties, valid_unlabeled))
+                sorted_unlabeled_ids = [c for _, c in sorted_pairs]
+                
+                # Rebuild card list
+                card_list = sorted_unlabeled_ids + [c for c in card_list if c not in sorted_unlabeled_ids]
+                st.toast("🔥 Queue bulk-sorted by Maximum Confusion!")
                         
             if valid_unlabeled:
                 # Sort ascending (Lowest distance from threshold = Highest Confusion)
@@ -493,10 +518,19 @@ elif app_mode == "🏷️ Data Labeler":
                 
                 y_probs = ai_model.predict_proba(X_input)
                 
-                for idx, key in enumerate(ALL_KEYS):
-                    prob_true = y_probs[idx][0, 1]
-                    tag_thresh = optimal_thresholds.get(key, 0.25)
-                    existing_data[key] = bool(prob_true >= tag_thresh)
+                # Map probabilities to their correct class names!
+                ai_predictions = {}
+                for class_idx, class_name in enumerate(TARGET_NAMES):
+                    if y_probs[class_idx].shape[1] > 1:
+                        prob_true = y_probs[class_idx][0, 1]
+                    else:
+                        prob_true = 0.0
+                    tag_thresh = optimal_thresholds.get(class_name, 0.25)
+                    ai_predictions[class_name] = bool(prob_true >= tag_thresh)
+                
+                # Apply them safely to the existing UI keys
+                for key in ALL_KEYS:
+                    existing_data[key] = ai_predictions.get(key, False)
                     
                 is_ai_guess = True
                 st.success("🤖 Multi-Modal AI has pre-filled its best guesses!")
@@ -561,12 +595,32 @@ elif app_mode == "🧪 Model Testing":
         Unlike a simple linear baseline, this non-linear neural network maps complex, curved relationships in the visual data—allowing it to better learn the subtle boundary lines between intricate art styles and aesthetics.
         """)
         if st.button("🚀 Train Custom Model"):
-            with st.spinner("🧠 Initializing Multi-Layer Perceptron architecture..."):
-                try:
-                    result = subprocess.run([sys.executable, "-m", "src.ml.train_model"], capture_output=True, text=True, cwd=PROJECT_ROOT)
-                    st.success("Training Complete!")
-                    st.text(result.stdout)
-                except Exception as e: st.error(f"Error training model: {e}")
-                pass
-            st.success("🎯 Custom Neural Network trained and deployed successfully!")
+            st.markdown("### Live Training Logs:")
             
+            # Create a visual box to hold the live terminal output
+            with st.container(border=True):
+                # IMPORTANT: "-u" forces Python to be "Unbuffered" (streams text instantly)
+                # cwd=PROJECT_ROOT ensures it looks in the exact right folders
+                process = subprocess.Popen(
+                    [sys.executable, "-u", "-m", "src.ml.train_model"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=PROJECT_ROOT
+                )
+                
+                # Create an empty Streamlit UI element we can update frame-by-frame
+                log_box = st.empty()
+                full_log = ""
+                
+                # Read the terminal output line by line exactly as it happens
+                for line in iter(process.stdout.readline, ''):
+                    full_log += line
+                    # Display it as a cool hacker-style terminal block
+                    log_box.code(full_log, language="bash")
+                
+                process.wait()
+                
+            # Check the actual exit code from the operating system
+            if process.returncode == 0:
+                st.success("🎯 Custom Neural Network trained and deployed successfully!")
