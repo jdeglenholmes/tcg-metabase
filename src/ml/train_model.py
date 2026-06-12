@@ -41,15 +41,17 @@ def main():
         FROM tcg_cards 
         WHERE tags IS NOT NULL 
         AND image_embedding IS NOT NULL
-        AND supetype = 'Pokemon';
+        AND supertype IN ('Pokémon', 'Pokemon'); 
     """
     
     with engine.connect() as conn:
         df = pd.read_sql(text(query), conn)
         
     if df.empty:
-        print("❌ No labeled data found! Please label cards in the UI first.")
-        return
+        print("❌ CRITICAL: No labeled 'Pokémon' cards found in the database!")
+        print("Check if your DB uses 'Pokemon' instead of 'Pokémon', or label more cards.")
+        import sys
+        sys.exit(1) # Force a fatal crash so Streamlit catches it!
 
     print(f"   ↳ Found {len(df)} fully verified human-labeled cards.")
 
