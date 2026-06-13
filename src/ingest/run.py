@@ -31,7 +31,10 @@ logger.addHandler(ch)
 
 def check_has_trainer_art(card):
     name_lower = (card.get('name') or '').lower()
-    if card.get('supertype') != 'Pokémon':
+    
+    # Normalize the 'é' to 'e' just in case the API passes the accent
+    raw_supertype = card.get('supertype') or ''
+    if raw_supertype.replace('é', 'e').replace('É', 'E') != 'Pokemon':
         return False
         
     known_owners = [
@@ -198,6 +201,10 @@ def main():
                     "holofoil": "holofoil" in available_variants,
                     "firstEdition": any("1stEdition" in v for v in available_variants)
                 }
+
+                # Normalize the supertype to ALWAYS strip the accent
+                raw_supertype = card.get('supertype') or "Unknown"
+                clean_supertype = raw_supertype.replace('é', 'e').replace('É', 'E')
                 
                 # API mapping cleanly aligned to schema requirements
                 parsed_card = {

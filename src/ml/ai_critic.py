@@ -8,10 +8,12 @@ from sqlalchemy import text
 from src.database.connection import get_engine
 
 TARGET_NAMES = [
-    'chaotic', 'cinematic', 'comic_book_illustration', 'crisp_digital_portrait', 
-    'handcrafted_diorama', 'has_cameo', 'is_trainer_gallery', 'kinetic', 
-    'legendary', 'maximalist', 'minimalist', 'modern', 'neutral', 'pop_art', 
-    'standard_generic', 'surrealist', 'traditional_hand_painted', 'whimsical'
+    'celestial', 'chalk_pastel', 'chaotic', 'cinematic', 'comic_book_illustration', 
+    'cottagecore', 'crisp_digital_portrait', 'eerie_gothic', 'handcrafted_diorama', 
+    'has_cameo', 'high_stakes_showdown', 'is_trainer_gallery', 'kinetic', 'legendary', 
+    'lush_botanical', 'maximalist', 'minimalist', 'modern', 'neon_cyberpunk', 'neutral', 
+    'pixel_art', 'pop_art', 'retro_90s_anime', 'stained_glass', 'standard_generic', 
+    'surrealist', 'textile_craft', 'traditional_hand_painted', 'ukiyo_e', 'whimsical'
 ]
 
 def main():
