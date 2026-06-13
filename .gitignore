@@ -34,3 +34,6 @@ data/
 
 ./tests
 ./*.csv
+./*.pkl
+./models
+src/ml/models/
