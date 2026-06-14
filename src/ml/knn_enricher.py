@@ -108,12 +108,25 @@ def run_art_style_enrichment(target_set=None):
             if final_style != "Manual review needed":
                 current_tags[final_style] = True
 
+            # FIX: json.dumps() adds the necessary quotes that Postgres requires
             conn.execute(update_query, {
-                "style": final_style,
-                "tags": json.dumps(current_tags),
-                "card_id": row['card_id']
+                    "style": json.dumps(final_style),  # This turns 'val' into '"val"'
+                    "tags": json.dumps(current_tags),
+                    "card_id": row['card_id']
             })
             processed_count += 1
 
     logger.info(f"KNN Enricher: Successfully mapped {processed_count} cards.")
     return processed_count
+
+if __name__ == "__main__":
+    # Configure basic logging to see output in the terminal
+    logging.basicConfig(level=logging.DEBUG)
+    print("--- KNN Enricher: Starting Manual Execution ---")
+    
+    # Run the function
+    try:
+        count = run_art_style_enrichment()
+        print(f"--- KNN Enricher: Processed {count} cards ---")
+    except Exception as e:
+        print(f"--- KNN Enricher: CRASHED with error: {e}")
