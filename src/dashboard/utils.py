@@ -1,7 +1,6 @@
 # src/dashboard/utils.py
 import streamlit as st
 import pandas as pd
-import os
 import yaml
 import subprocess
 import sys
@@ -10,9 +9,20 @@ import json
 import re  
 from sqlalchemy import text
 from src.database.connection import get_engine
-import torch
 import clip
 import requests
+import torch
+import os
+
+def load_clip_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Set the download path to your preferred models folder
+    model_path = os.path.join(os.path.dirname(__file__), "../ml/models")
+    os.makedirs(model_path, exist_ok=True)
+    
+    # This will download the model to your folder if it doesn't exist
+    model, preprocess = clip.load("ViT-B/32", device=device, download_root=model_path)
+    return model, device
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
@@ -182,59 +192,41 @@ def get_labeling_state(selected_set, current_user):
             
     return db_df, user_history
 
-def save_label_to_db(card_id, user_name, selections):
+def save_label_to_db(card_id, selections):
+    """
+    Saves manual tag selections to the database. 
+    User tracking is disabled; logs as 'Human_Audit'.
+    """
     engine = get_engine()
     tags_json = json.dumps(selections)
+    
+    # Extract the true values for the dedicated columns
     true_art = [k for k, v in selections.items() if v and k in ART_STYLE_KEYS]
     true_aes = [k for k, v in selections.items() if v and k in AESTHETIC_KEYS]
     
     with engine.begin() as conn:
         query = """
             UPDATE tcg_cards 
-            SET tags = :tags, labeled_by = :user_name, art_style = :art, card_aesthetic = :aes, updated_at = CURRENT_TIMESTAMP
+            SET tags = :tags, 
+                labeled_by = 'Human_Audit', -- Hardcoded to replace the old user_name
+                art_style = :art, 
+                card_aesthetic = :aes, 
+                updated_at = CURRENT_TIMESTAMP
             WHERE card_id = :card_id;
         """
-        conn.execute(text(query), {"tags": tags_json, "user_name": user_name, "art": json.dumps(true_art), "aes": json.dumps(true_aes), "card_id": card_id})
-
+        conn.execute(
+            text(query), 
+            {
+                "tags": tags_json, 
+                "art": json.dumps(true_art), 
+                "aes": json.dumps(true_aes), 
+                "card_id": card_id
+            }
+        )
+        
 def render_sidebar():
-    """Renders the shared sidebar and manages session state across all pages."""
-    st.sidebar.title("🎴 TCG ML Studio")
-    
-    if "user_name" not in st.session_state:
-        st.session_state.user_name = ""
-        
-    user_name = st.sidebar.text_input("User Name", value=st.session_state.user_name, placeholder="👤 i.e. Jacob", label_visibility="collapsed")
-    st.session_state.user_name = user_name
-    
-    if not st.session_state.user_name:
-        st.sidebar.info("👈 Please enter your name to access the studio.")
-        st.stop()
-        
-    st.sidebar.write("---")
-    
-    engine = get_engine()
-    with engine.connect() as conn:
-        set_query = "SELECT DISTINCT split_part(card_id, '-', 1) as set_prefix FROM tcg_cards;"
-        raw_db_sets = [r[0] for r in conn.execute(text(set_query)).fetchall() if r[0]]
-        
-    all_sets = sorted(raw_db_sets, key=lambda x: CHRONOLOGICAL_ORDER.index(x) if x in CHRONOLOGICAL_ORDER else 9999)
-    
-    if "selected_set" not in st.session_state:
-        st.session_state.selected_set = all_sets[0] if all_sets else None
-        
-    st.sidebar.caption("📂 Select Working Set")
-    
-    current_index = 0
-    if st.session_state.selected_set in all_sets:
-        current_index = all_sets.index(st.session_state.selected_set)
-        
-    selected_set = st.sidebar.selectbox(
-        "set_select", 
-        all_sets, 
-        index=current_index,
-        format_func=format_set_name, 
-        label_visibility="collapsed"
-    )
-    st.session_state.selected_set = selected_set
-    
-    return st.session_state.user_name, st.session_state.selected_set
+    """Renders a static sidebar without forcing global variables."""
+    st.sidebar.markdown("### 🎴 TCG ML Studio")
+    st.sidebar.caption("Pipeline Dashboard v2.0")
+    st.sidebar.divider()
+    st.sidebar.markdown("Navigate using the pages above.")

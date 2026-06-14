@@ -1,12 +1,8 @@
 # src/pipeline/master_pipeline.py
 import logging
 
-# IMPORT YOUR ACTUAL ML SCRIPTS HERE
 from src.ml.clip_embedder import embed_unembedded_cards
 from src.ml.knn_enricher import run_art_style_enrichment
-
-# If you have your OCR script ready, uncomment the line below:
-# from src.ml.ocr_cleaner import run_ocr_audit 
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +26,12 @@ def run_end_to_end_pipeline(target_set=None):
         if target_set:
             logger.debug(f"Step 1: Attempting to fetch API data for set: {target_set}")
             # stats["total"] = fetch_set(target_set) 
-            # Remove the line below once your fetch_set function is wired!
             stats["total"] = "N/A" 
         else:
             logger.debug("Step 1: Bulk Sweep requested. Skipping API fetch phase.")
     except Exception as e:
         logger.error(f"❌ Failed during API Ingestion: {e}", exc_info=True)
+        raise e  # <--- CRITICAL FIX: Forces Streamlit to show the error
 
     # --- 2. CLIP EMBEDDINGS ---
     try:
@@ -44,6 +40,7 @@ def run_end_to_end_pipeline(target_set=None):
         logger.debug(f"Step 2 Complete: Successfully embedded {stats['embedded']} cards.")
     except Exception as e:
         logger.error(f"❌ Failed during CLIP embedding: {e}", exc_info=True)
+        raise e  # <--- CRITICAL FIX
 
     # --- 3. OCR AUDIT ---
     try:
@@ -52,6 +49,7 @@ def run_end_to_end_pipeline(target_set=None):
         logger.debug(f"Step 3 Complete: OCR skipped or simulated.")
     except Exception as e:
         logger.error(f"❌ Failed during OCR: {e}", exc_info=True)
+        raise e  # <--- CRITICAL FIX
 
     # --- 4. KNN ART STYLE ENRICHMENT ---
     try:
@@ -60,6 +58,7 @@ def run_end_to_end_pipeline(target_set=None):
         logger.debug(f"Step 4 Complete: Successfully enriched {stats['knn_enriched']} cards.")
     except Exception as e:
         logger.error(f"❌ Failed during KNN Enrichment: {e}", exc_info=True)
+        raise e  # <--- CRITICAL FIX
         
     logger.debug(f"🎉 PIPELINE FINISHED | Final Stats: {stats}")
     logger.debug(f"==================================================")
