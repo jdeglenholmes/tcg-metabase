@@ -21,6 +21,7 @@ services:
     environment:
     - DB_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@poke_db:5432/${POSTGRES_DB}
     - HF_TOKEN=${HF_TOKEN}
+    - GEMINI_API_KEY=${GEMINI_API_KEY}
     - PYTHONPATH=/app
     ports:
       - "8501:8501"
