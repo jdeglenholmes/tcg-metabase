@@ -29,7 +29,8 @@ def run_art_style_enrichment(target_set=None):
 
     target_lines = [
         "SELECT card_id, tags, image_embedding FROM tcg_cards",
-        "WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND (art_style IS NULL OR art_style = '\"Manual review needed\"') AND image_embedding IS NOT NULL"
+        "WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND (art_style IS NULL OR art_style = '\"Manual review needed\"') AND image_embedding IS NOT NULL",
+        "AND illustrator != 'Unknown'"
     ]
     params = {}
     if target_set:
@@ -83,7 +84,7 @@ def run_art_style_enrichment(target_set=None):
     preds = knn.classes_[np.argmax(probs, axis=1)]
 
     # 6. Apply logic and write to Database
-    threshold = 0.60
+    threshold = 0.50
     update_query = text("UPDATE tcg_cards SET art_style = :style, tags = :tags WHERE card_id = :card_id")
     processed_count = 0
 

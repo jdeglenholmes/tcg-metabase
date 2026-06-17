@@ -28,6 +28,7 @@ ftfy==6.3.1
 git-filter-repo==2.47.0
 gitdb==4.0.12
 GitPython==3.1.46
+google-genai
 greenlet==3.4.0
 h11==0.16.0
 hf-xet==1.5.0
@@ -76,13 +77,14 @@ polars==1.40.0
 polars-runtime-32==1.40.0
 pooch==1.9.0
 prompt_toolkit==3.0.52
-protobuf==7.34.1
+protobuf
 psutil==7.2.2
 psycopg2-binary==2.9.11
 pure_eval==0.2.3
 pyarrow==23.0.1
 pyclipper==1.4.0
 pydeck==0.9.2
+pydantic
 Pygments==2.20.0
 PyMatting==1.1.15
 pyparsing==3.3.2

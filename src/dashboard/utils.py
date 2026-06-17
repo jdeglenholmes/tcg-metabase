@@ -75,7 +75,8 @@ ARTIST_ANCHORS = {
     "AKIRA EGAWA": "maximalist",            # Famous for hyper-dense, edge-to-edge detailing
     "OOYAMA": "comical_derpy",              # Known for flat, funny, derpy faces
     "Kanahei": "comical_derpy",             # Known for round, goofy, storybook designs
-    "Naoki Saito": "crisp_digital_portrait" # The quintessential modern anime digital portrait artist
+    "Naoki Saito": "crisp_digital_portrait", # The quintessential modern anime digital portrait artist
+    "Ryoma Uratsuka": "crisp_digital_portrait"  # Known for crisp cute renders with smooth edges.
 }
 
 @st.cache_data(ttl=86400)
