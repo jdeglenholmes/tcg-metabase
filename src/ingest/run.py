@@ -8,7 +8,9 @@ from sqlalchemy import text
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from src.database.connection import get_engine
-from src.ingest.enrichment import run_clip_enrichment_worker
+from src.ingest.enrichment import run_clip_enrichment_worker # Data Ingest Module 2
+from src.ml.ocr_cleaner import run_ocr_audit # Data Ingestor Module 3
+from src.ml.knn_enricher import run_art_style_enrichment # Data Ingestor Module 4
 
 # ==========================================
 # 1. SETUP DUAL-LOGGING (UI + File)
@@ -67,6 +69,13 @@ def check_has_trainer_art(card):
 
 def fetch_cards_for_set(set_id):
     session = requests.Session()
+    
+    # --- ADD THIS BLOCK TO PROTECT THE BACKGROUND DOWNLOADER ---
+    session.headers.update({
+        "User-Agent": "TCG-ML-Studio/1.0",
+        "Accept": "application/json"
+    })
+    
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
     
@@ -157,12 +166,26 @@ def main():
     parser = argparse.ArgumentParser(description="TCG ML Data Pipeline")
     parser.add_argument("--ingest", action="store_true")
     parser.add_argument("--enrich", action="store_true")
+    parser.add_argument("--ocr", action="store_true") # <-- NEW FLAG ADDED
+    parser.add_argument("--knn", action="store_true")
     parser.add_argument("--set_name", type=str)
     args = parser.parse_args()
 
-    if not args.ingest and not args.enrich:
-        logger.error("⚠️ Please specify an action: --ingest or --enrich")
+    # Update this check to include OCR
+    if not args.ingest and not args.enrich and not args.ocr and not args.knn:
+        logger.error("⚠️ Please specify an action: --ingest, --enrich, or --ocr, or --knn")
         sys.exit(1)
+
+    # --- NEW OCR EXECUTION BLOCK --- 
+    if args.ocr:
+        logger.info(f"👁️ Starting OCR Audit for {args.set_name if args.set_name else 'BULK'}")
+        run_ocr_audit(target_set=args.set_name)
+        logger.info("✅ OCR Audit complete!")
+    
+    if args.knn:
+        logger.info(f"👁️ Starting KNN Classifier for {args.set_name if args.set_name else 'BULK'}")
+        run_art_style_enrichment(target_set=args.set_name)
+        logger.info("✅ KNN Classifier complete!")
 
     if args.enrich:
         logger.info(f"🚀 Starting Enrichment for {args.set_name}")
@@ -210,7 +233,7 @@ def main():
                 parsed_card = {
                     'id': card['id'],
                     'name': card.get('name') or "Unknown",
-                    'supertype': card.get('supertype') or "Unknown",
+                    'supertype': clean_supertype, # Using the cleaned supertype variable here!
                     'is_trainer_card': check_has_trainer_art(card), 
                     'illustrator': card.get('artist') or "Unknown",
                     'rarity': card.get('rarity') or "Unknown",

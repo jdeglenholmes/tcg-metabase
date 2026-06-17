@@ -229,4 +229,3 @@ def render_sidebar():
     st.sidebar.markdown("### 🎴 TCG ML Studio")
     st.sidebar.caption("Pipeline Dashboard v2.0")
     st.sidebar.divider()
-    st.sidebar.markdown("Navigate using the pages above.")

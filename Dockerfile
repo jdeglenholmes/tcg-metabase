@@ -1,13 +1,14 @@
 # Dockerfile/initialise container with specific tools
 
 # 1. Use a slim Python image to keep the size down
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # 2. Set the working directory inside the container
 WORKDIR /app
 
 # 3. Install system dependencies (needed for some Postgres libraries)
 RUN apt-get update && apt-get install -y \
+    git \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*

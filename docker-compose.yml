@@ -26,7 +26,13 @@ services:
       - "8501:8501"
     depends_on:
       - poke_db
-    # --- ADD THIS VOLUMES BLOCK ---
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       - ./:/app           # Syncs your entire project folder
       - ./logs:/app/logs  # Explicitly syncs the logs directory
