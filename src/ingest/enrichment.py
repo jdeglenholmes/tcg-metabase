@@ -1,86 +1,90 @@
+# src/ingest/enrichment.py
 import os
-import logging
-import sys
-from sqlalchemy import text
-from tqdm import tqdm
-from src.database.connection import get_engine
 import requests
-from io import BytesIO
-from PIL import Image
 import torch
+import json
 import clip
+from PIL import Image
+from io import BytesIO
+from sqlalchemy import text
+import logging
 
-os.makedirs("logs", exist_ok=True)
-logging.basicConfig(
-    filename=os.path.join("logs", "app_log.txt"),
-    level=logging.INFO,
-    format='[%(asctime)s] %(message)s'
-)
+from src.database.connection import get_engine
 
-print("⚙️ Initializing Vision Model (CLIP)...")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"🚀 Computation Device set to: {device.upper()}")
+# Attach to the logger we set up in run.py
+logger = logging.getLogger('TCG_Ingest')
 
-model, preprocess = clip.load("ViT-B/32", device=device)
-if device == "cuda":
-    model = model.half()
-
-def generate_image_embedding(image_url):
-    try:
-        response = requests.get(image_url, timeout=10)
-        response.raise_for_status()
-        raw_image = Image.open(BytesIO(response.content)).convert("RGB")
-        
-        image_input = preprocess(raw_image).unsqueeze(0).to(device)
-        with torch.no_grad():
-            image_features = model.encode_image(image_input)
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            raw_embedding = image_features[0].cpu().numpy().tolist()
-            
-        return raw_embedding
-    except Exception as e:
-        raise RuntimeError(f"Embedding generation failed: {e}")
-
-def run_clip_enrichment_worker(batch_size=16, force_recompute=False, set_prefix=None):
+def run_clip_enrichment_worker(set_prefix=None):
+    """
+    Finds cards missing image_embeddings, downloads their art, 
+    processes them through ViT-B/32, and saves the vectors to PostgreSQL.
+    """
     engine = get_engine()
     
-    query = "SELECT card_id, image_url FROM tcg_cards WHERE image_embedding IS NULL AND image_url IS NOT NULL"
+    # 1. Build the targeted database query
+    query_str = "SELECT card_id, image_url FROM tcg_cards WHERE image_embedding IS NULL AND image_url IS NOT NULL"
     params = {}
-    if set_prefix:
-        query += " AND card_id ILIKE :set_id"
-        params = {"set_id": f"{set_prefix}-%"}
     
-    # 🚨 PANDAS REMOVED 🚨 Use pure SQLAlchemy to prevent dict/param mapping crashes
+    # If a specific set was requested (not BULK), filter by it
+    if set_prefix and set_prefix != "BULK":
+        query_str += " AND set_id ILIKE :set_id"
+        params["set_id"] = set_prefix
+        
     with engine.connect() as conn:
-        result = conn.execute(text(query), params).mappings().fetchall()
-    
-    if not result:
-        print("✅ SUCCESS! All requested cards already have embeddings generated.")
-        return
+        cards = conn.execute(text(query_str), params).mappings().fetchall()
+        
+    if not cards:
+        logger.info(f"✅ No unembedded cards found for {set_prefix if set_prefix else 'the entire database'}.")
+        return 0
 
-    pbar = tqdm(result, total=len(result), desc="🚀 Generating Embeddings", file=sys.stderr)
+    # 2. Load the Neural Network
+    logger.info(f"🧠 Loading ViT-B/32 Vision Model into GPU...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    for row in pbar:
-        pbar.set_description(f"🚀 Processing: {row['card_id']}")
+    # Load locally so we retain the critical `preprocess` function
+    model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../ml/models"))
+    os.makedirs(model_path, exist_ok=True)
+    model, preprocess = clip.load("ViT-B/32", device=device, download_root=model_path)
+    
+    logger.info(f"⚙️ Model loaded on {device.upper()}. Processing {len(cards)} cards...")
+    
+    # 3. Process Cards
+    headers = {"User-Agent": "TCG-ML-Studio/1.0", "Accept": "image/*"}
+    success_count = 0
+    
+    for i, row in enumerate(cards):
         try:
-            raw_embedding = generate_image_embedding(row['image_url'])
+            # Download Image (with strict timeout so the UI never hangs)
+            response = requests.get(row['image_url'], headers=headers, timeout=10)
+            if response.status_code != 200:
+                logger.warning(f"⚠️ Failed to download image for {row['card_id']} (Status {response.status_code})")
+                continue
+                
+            img = Image.open(BytesIO(response.content)).convert('RGB')
+            
+            # Generate 512-dimensional Vector
+            image_input = preprocess(img).unsqueeze(0).to(device)
+            with torch.no_grad():
+                image_features = model.encode_image(image_input)
+                # Normalize the vector (crucial for accurate Cosine Similarity)
+                image_features /= image_features.norm(dim=-1, keepdim=True)
+                embedding_vector = image_features.cpu().numpy()[0].tolist()
+                
+            # Save Vector to Database
             with engine.begin() as conn:
                 conn.execute(
-                    text("""
-                        UPDATE tcg_cards 
-                        SET image_embedding = :embedding,
-                            enrichment_status = 'processed' 
-                        WHERE card_id = :card_id;
-                    """),
-                    {
-                        "embedding": str(raw_embedding),
-                        "card_id": row['card_id']
-                    }
+                    text("UPDATE tcg_cards SET image_embedding = :emb WHERE card_id = :card_id"),
+                    {"emb": json.dumps(embedding_vector), "card_id": row['card_id']}
                 )
-        except Exception as eval_error:
-            tqdm.write(f"   ❌ Error processing asset [{row['card_id']}]: {eval_error}")
-            with engine.begin() as conn:
-                conn.execute(
-                    text("UPDATE tcg_cards SET enrichment_status = 'failed' WHERE card_id = :card_id;"),
-                    {"card_id": row['card_id']}
-                )
+                
+            success_count += 1
+            
+            # Print a progress update every 10 cards so the Streamlit UI updates live
+            if (i + 1) % 10 == 0:
+                logger.info(f"   ↳ Embedded {i + 1} / {len(cards)} cards...")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to embed {row['card_id']}: {e}")
+            
+    logger.info(f"🎉 Successfully embedded {success_count}/{len(cards)} cards!")
+    return success_count
