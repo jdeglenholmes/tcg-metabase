@@ -1,4 +1,6 @@
---extra-index-url https://download.pytorch.org/whl/cu121
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 altair==6.0.0
 annotated-doc==0.0.4
 anyio==4.13.0
