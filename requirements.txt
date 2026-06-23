@@ -122,9 +122,6 @@ threadpoolctl==3.6.0
 tifffile==2026.6.1
 tokenizers==0.22.2
 toml==0.10.2
-torch==2.5.1+cu121
-torchaudio==2.5.1+cu121
-torchvision==0.20.1+cu121
 tornado==6.5.5
 tqdm==4.67.3
 traitlets==5.14.3
