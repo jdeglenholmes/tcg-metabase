@@ -1,133 +1,156 @@
 # src/ml/knn_enricher.py
-import pandas as pd
-import numpy as np
+import os
 import json
 import ast
 import logging
-from sqlalchemy import text
+import pandas as pd
+import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
-from src.dashboard.utils import get_engine, ART_STYLE_KEYS
+from sqlalchemy import text
 
-logger = logging.getLogger(__name__)
+from src.database.connection import get_engine
 
-def run_art_style_enrichment(target_set=None):
+logger = logging.getLogger('TCG_Ingest')
+
+def run_knn_enricher(target_set=None, confidence_threshold=0.70):
     """
-    Trains a KNN model on all currently labeled Pokémon cards, 
-    then predicts the art style for unlabeled cards.
+    Trains a dynamic KNN classifier using verified database records 
+    and classifies unlabeled cards. Gives 5x weight to human-audited anchors.
     """
     engine = get_engine()
     
-    # 1. Fetch Training Data (All known labels)
+    # -------------------------------------------------------------------------
+    # STEP 1: FETCH & PREPARE TRAINING DATA (THE GOLD STANDARD)
+    # -------------------------------------------------------------------------
+    logger.info("📥 Fetching training data from database...")
+    
     train_query = text("""
-    SELECT art_style, image_embedding 
-    FROM tcg_cards 
-    WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' 
-      AND art_style IS NOT NULL 
-      AND art_style != '"Manual review needed"'
-      AND image_embedding IS NOT NULL;
+        SELECT card_id, art_style, image_embedding, labeled_by 
+        FROM tcg_cards 
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' 
+          AND art_style IS NOT NULL 
+          AND art_style != '"Manual review needed"'
+          AND image_embedding IS NOT NULL;
     """)
-
-    target_lines = [
-        "SELECT card_id, tags, image_embedding FROM tcg_cards",
-        "WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND (art_style IS NULL OR art_style = '\"Manual review needed\"') AND image_embedding IS NOT NULL",
-        "AND illustrator != 'Unknown'"
-    ]
-    params = {}
-    if target_set:
-        target_lines.append("AND set_id ILIKE :set_id")
-        params["set_id"] = target_set
-        
-    target_query = text("\n".join(target_lines))
-
+    
     with engine.connect() as conn:
         train_df = pd.read_sql(train_query, conn)
-        target_df = pd.read_sql(target_query, conn, params=params)
-
-    if target_df.empty:
-        logger.info(f"KNN Enricher: No unlabelled cards found for set '{target_set or 'ALL'}'.")
-        return 0
-
+        
     if train_df.empty:
-        logger.error("KNN Enricher: Zero training data found! Cannot run KNN.")
-        return 0
+        logger.warning("⚠️ No training data found. Cannot run KNN enricher.")
+        return 0, 0
 
-    logger.info(f"KNN Enricher: Training on {len(train_df)} known cards. Predicting {len(target_df)} unknown cards...")
+    # Parse stringified embeddings into numpy arrays safely
+    train_df['X'] = train_df['image_embedding'].apply(
+        lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+    )
+    
+    # Clean up database JSON quotes (e.g., '"pop_art"' -> 'pop_art')
+    train_df['y'] = train_df['art_style'].apply(
+        lambda x: json.loads(x) if (isinstance(x, str) and x.startswith('"')) else x
+    )
 
-    # 3. Parse Embeddings safely
-    def parse_emb(val):
-        try:
-            return ast.literal_eval(val) if isinstance(val, str) else val
-        except:
-            return None
+    # --- HUMAN ANCHOR OVERSAMPLING ---
+    # Isolate records verified by you to give them massive mathematical gravity
+    human_anchors = train_df[train_df['labeled_by'] == 'Human_Audit']
+    
+    if not human_anchors.empty:
+        logger.info(f"⚖️ Found {len(human_anchors)} Human Anchors. Applying 5x gravity multiplier...")
+        # Clone your manual adjustments 4 additional times (5x total presence)
+        train_df = pd.concat([train_df] + [human_anchors] * 4, ignore_index=True)
 
-    train_df['parsed_emb'] = train_df['image_embedding'].apply(parse_emb)
-    target_df['parsed_emb'] = target_df['image_embedding'].apply(parse_emb)
+    X_train = np.array(train_df['X'].tolist())
+    y_train = train_df['y'].values
 
-    # Drop any rows that failed to parse
-    train_df = train_df.dropna(subset=['parsed_emb'])
-    target_df = target_df.dropna(subset=['parsed_emb'])
-
-    if target_df.empty:
-        return 0
-
-    # 4. Train the Model
-    X_train = np.stack(train_df['parsed_emb'].values)
-    y_train = train_df['art_style'].values
-
+    # -------------------------------------------------------------------------
+    # STEP 2: TRAIN THE WORKHORSE MODEL
+    # -------------------------------------------------------------------------
+    logger.info("🧠 Training KNeighborsClassifier (Distance-Weighted)...")
+    
+    # weights='distance' ensures closer vectors scale in importance dramatically
     knn = KNeighborsClassifier(n_neighbors=5, weights='distance')
     knn.fit(X_train, y_train)
 
-    # 5. Predict
-    X_target = np.stack(target_df['parsed_emb'].values)
-    probs = knn.predict_proba(X_target)
-    max_probs = np.max(probs, axis=1)
-    preds = knn.classes_[np.argmax(probs, axis=1)]
+    # -------------------------------------------------------------------------
+    # STEP 3: FETCH TARGET CARDS (UNLABELED OR SPECIFIC SET)
+    # -------------------------------------------------------------------------
+    logger.info("🔍 Identifying target cards requiring classification...")
+    
+    target_query_str = """
+        SELECT card_id, image_embedding 
+        FROM tcg_cards 
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' 
+          AND image_embedding IS NOT NULL
+    """
+    
+    params = {}
+    
+    # If a specific set is provided, we audit/reclassify everything in that set
+    # that hasn't been explicitly locked down by a human or an AI Critic.
+    if target_set and target_set != "BULK":
+        target_query_str += " AND set_id ILIKE :set_id AND (labeled_by IS NULL OR labeled_by = 'KNN')"
+        params["set_id"] = target_set
+        logger.info(f"🎯 Target set configured: Filtered by Expansion ID [{target_set}]")
+    else:
+        # Bulk mode: Sweep only unclassified or machine-uncertain records across the whole DB
+        target_query_str += " AND (art_style IS NULL OR art_style = '\"Manual review needed\"')"
+        logger.info("🎯 Mode configured: Running global BULK sweep on unclassified queue.")
 
-    # 6. Apply logic and write to Database
-    threshold = 0.50
-    update_query = text("UPDATE tcg_cards SET art_style = :style, tags = :tags WHERE card_id = :card_id")
-    processed_count = 0
+    with engine.connect() as conn:
+        target_df = pd.read_sql(text(target_query_str), conn, params=params)
 
+    if target_df.empty:
+        logger.info("✅ Zero target cards found matching criteria. Pipeline complete.")
+        return 0, 0
+
+    target_df['X'] = target_df['image_embedding'].apply(
+        lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+    )
+    X_target = np.array(target_df['X'].tolist())
+
+    # -------------------------------------------------------------------------
+    # STEP 4: PREDICT AND APPLY THRESHOLDS
+    # -------------------------------------------------------------------------
+    logger.info(f"🔮 Predicting art styles for {len(target_df)} cards...")
+    
+    probabilities = knn.predict_proba(X_target)
+    max_probs = np.max(probabilities, axis=1)
+    predicted_classes = knn.classes_[np.argmax(probabilities, axis=1)]
+
+    auto_classified = 0
+    escalated_to_manual = 0
+
+    # -------------------------------------------------------------------------
+    # STEP 5: BATCH UPDATE THE DATABASE
+    # -------------------------------------------------------------------------
+    logger.info("💾 Writing classifications back to Postgres...")
+    
     with engine.begin() as conn:
         for idx, row in target_df.iterrows():
-            predicted_style = preds[idx]
             confidence = max_probs[idx]
             
-            final_style = predicted_style if confidence >= threshold else "Manual review needed"
-            
-            # Safely handle the JSON tags column
-            try:
-                current_tags = json.loads(row['tags']) if isinstance(row['tags'], str) else (row['tags'] or {})
-            except Exception:
-                current_tags = {}
-                
-            # Strip out old art styles to prevent multi-tagging mediums
-            for k in ART_STYLE_KEYS:
-                current_tags.pop(k, None)
-                
-            # Inject new style if we passed the threshold
-            if final_style != "Manual review needed":
-                current_tags[final_style] = True
+            if confidence >= confidence_threshold:
+                final_style = predicted_classes[idx]
+                label_source = 'KNN'
+                auto_classified += 1
+            else:
+                final_style = 'Manual review needed'
+                label_source = 'KNN_Uncertain'
+                escalated_to_manual += 1
 
-            # FIX: json.dumps() adds the necessary quotes that Postgres requires
-            conn.execute(update_query, {
-                    "style": json.dumps(final_style),  # This turns 'val' into '"val"'
-                    "tags": json.dumps(current_tags),
+            conn.execute(
+                text("""
+                    UPDATE tcg_cards 
+                    SET art_style = :style,
+                        labeled_by = :source
+                    WHERE card_id = :card_id
+                """),
+                {
+                    "style": json.dumps(final_style),
+                    "source": label_source,
                     "card_id": row['card_id']
-            })
-            processed_count += 1
+                }
+            )
 
-    logger.info(f"KNN Enricher: Successfully mapped {processed_count} cards.")
-    return processed_count
-
-if __name__ == "__main__":
-    # Configure basic logging to see output in the terminal
-    logging.basicConfig(level=logging.DEBUG)
-    print("--- KNN Enricher: Starting Manual Execution ---")
-    
-    # Run the function
-    try:
-        count = run_art_style_enrichment()
-        print(f"--- KNN Enricher: Processed {count} cards ---")
-    except Exception as e:
-        print(f"--- KNN Enricher: CRASHED with error: {e}")
+    logger.info(f"🎉 KNN Enrichment Complete! Automatically Classified: {auto_classified} | Escalated to Audit Station: {escalated_to_manual}")
+    return auto_classified, escalated_to_manual
