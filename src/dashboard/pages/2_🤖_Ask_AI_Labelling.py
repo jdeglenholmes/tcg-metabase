@@ -6,7 +6,6 @@ import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
 from sqlalchemy import text
 from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS
-# --- ADD THESE TO YOUR IMPORTS ---
 import os
 import requests
 from io import BytesIO

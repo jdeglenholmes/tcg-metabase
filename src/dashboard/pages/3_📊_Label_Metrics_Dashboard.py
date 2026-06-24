@@ -1,0 +1,100 @@
+import streamlit as st
+import pandas as pd
+import json
+from sqlalchemy import text
+from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS
+
+st.set_page_config(page_title="Model Metrics", layout="wide")
+render_sidebar()
+
+st.title("📊 Active Learning Metrics")
+st.markdown("Track the health of the classification pipeline and human anchor distribution.")
+
+engine = get_engine()
+
+# Fetch live data from Supabase
+@st.cache_data(ttl=60)
+def fetch_metrics():
+    query = text("""
+        SELECT art_style, labeled_by
+        FROM tcg_cards
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
+          AND art_style IS NOT NULL;
+    """)
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
+        
+    # Clean up JSON string formatting if necessary
+    df['clean_style'] = df['art_style'].apply(
+        lambda x: json.loads(x) if isinstance(x, str) and x.startswith('"') else x
+    )
+    return df
+
+df = fetch_metrics()
+
+if df.empty:
+    st.warning("No labeled data found in the database.")
+else:
+    # Calculate Core Metrics
+    total_cards = len(df)
+    needs_review = len(df[df['clean_style'] == 'Manual review needed'])
+    human_anchors = len(df[df['labeled_by'] == 'Human_Audit'])
+    auto_labeled = total_cards - needs_review - human_anchors
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Classified Cards", f"{total_cards:,}")
+    col2.metric("Locked Human Anchors", f"{human_anchors:,}")
+    col3.metric("Pending Manual Review", f"{needs_review:,}")
+
+    st.divider()
+
+    # Anchor Distribution Analysis
+    st.subheader("Gravity Report: Human Anchors per Category")
+    
+    # Filter out the review bucket
+    valid_df = df[df['clean_style'] != 'Manual review needed']
+    
+    # Group by style and count human vs auto
+    style_breakdown = valid_df.groupby(['clean_style', 'labeled_by']).size().unstack(fill_value=0).reset_index()
+    
+    # Ensure 'Human_Audit' column exists even if 0
+    if 'Human_Audit' not in style_breakdown.columns:
+        style_breakdown['Human_Audit'] = 0
+        
+    style_breakdown = style_breakdown.sort_values(by='Human_Audit', ascending=False)
+
+    st.dataframe(
+        style_breakdown,
+        column_config={
+            "clean_style": "Art Style Taxonomy",
+            "Human_Audit": st.column_config.ProgressColumn(
+                "Human Anchors (Gravity)",
+                help="Higher numbers mean stronger pull for the KNN algorithm.",
+                format="%f",
+                min_value=0,
+                max_value=max(style_breakdown['Human_Audit'].max(), 1),
+            ),
+            "pipeline_auto": "Auto-Classified"
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+
+    st.divider()
+
+    # Taxonomy Expansion Recommendations
+    st.subheader("💡 Taxonomy Recommendations")
+    st.markdown("Based on current active learning data, these areas require attention:")
+
+    weak_categories = style_breakdown[style_breakdown['Human_Audit'] < 5]['clean_style'].tolist()
+    
+    if weak_categories:
+        st.warning(f"**Low Gravity Detected:** The following styles have fewer than 5 Human Anchors. The model will struggle to assign these until you lock in more examples:\n\n`{', '.join(weak_categories)}`")
+    
+    # Check for massive imbalances (like crisp_digital_portrait acting as a black hole)
+    if 'pipeline_auto' in style_breakdown.columns:
+        massive_categories = style_breakdown[style_breakdown['pipeline_auto'] > 2000]['clean_style'].tolist()
+        if massive_categories:
+            st.error(f"**Taxonomy Bottleneck:** The following categories are absorbing a massive amount of cards (`{', '.join(massive_categories)}`). The taxonomy here may not be specific enough. Consider breaking these down into sub-styles to capture more nuanced artwork.")
+    else:
+        st.success("Your cluster distribution is currently balanced. No immediate taxonomy fracturing required.")

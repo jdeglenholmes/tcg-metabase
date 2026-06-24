@@ -1,14 +1,15 @@
-# src/dashboard/app.py
 import streamlit as st
+from src.dashboard.utils import render_sidebar
 
-st.set_page_config(page_title="TCG ML Studio", layout="wide", page_icon="🎴")
+st.set_page_config(page_title="TCG Labeler", layout="wide")
+render_sidebar()
 
-st.title("🎴 TCG ML Studio")
+st.title("TCG Active Learning Command Center")
 st.markdown("""
-Welcome to the refined 3-module pipeline. Our current primary directive is achieving **100% database health** and **bulletproof `art_style` tagging** across all Pokémon cards.
+Welcome to the cloud-hosted auditing station. 
 
-### 🧭 Navigation (Use the Sidebar)
-* **📥 1. Data Ingestor**: The automated ETL engine. Fetch API data, calculate CLIP embeddings, and execute initial KNN art style estimations.
-* **🔍 2. Card Fetcher (Human Review)**: The manual verification hub. Audit the KNN assignments, correct errors, and flag suspicious cards.
-* **📊 3. Command Center**: The intelligent mid-layer. Track database volume, model health, and receive automated directives on your next steps.
+**Available Modules:**
+* **🕵️ Human Labelling:** Swipe through unconfident predictions and lock in Human Anchors.
+* **🤖 Ask AI Labelling:** Consult the Gemini Vision model for a second opinion on highly nuanced or ambiguous art styles.
+* **📊 Label Metrics Dashboard:** Track active learning performance, cluster gravity, and identify areas where the taxonomy may need expansion.
 """)
