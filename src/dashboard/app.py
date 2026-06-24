@@ -1,3 +1,13 @@
+
+# Imports
+import sys 
+import os
+
+## identify project root path as the system path
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+
 import streamlit as st
 from src.dashboard.utils import render_sidebar
 
