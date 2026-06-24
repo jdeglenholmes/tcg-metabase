@@ -37,14 +37,6 @@ AESTHETIC_KEYS = [
 
 # --- UI COMPONENTS ---
 def render_sidebar():
-    # 1. Inject CSS to hide the default Streamlit auto-navigation
-    st.markdown("""
-        <style>
-            [data-testid="stSidebarNav"] {display: none;}
-        </style>
-    """, unsafe_allow_html=True)
-
-    # 2. Render our custom menu
     with st.sidebar:
         st.title("TCG Auditor")
         st.page_link("app.py", label="Home", icon="🏠")
