@@ -8,11 +8,11 @@ import datetime
 import json
 import re  
 from sqlalchemy import text
-from src.database.connection import get_engine
 import requests
 import os
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+from src.database.connection import get_engine
 
 # --- TAXONOMIES ---
 ART_STYLE_KEYS = [

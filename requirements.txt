@@ -7,3 +7,5 @@ scikit-learn
 google-genai
 python-dotenv
 PyYAML
+pydantic
+Pillow
