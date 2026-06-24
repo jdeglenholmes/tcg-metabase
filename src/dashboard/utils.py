@@ -36,13 +36,14 @@ AESTHETIC_KEYS = [
 ]
 
 # --- UI COMPONENTS ---
+# --- UI COMPONENTS ---
 def render_sidebar():
     with st.sidebar:
         st.title("TCG Auditor")
         st.page_link("app.py", label="Home", icon="🏠")
-        st.page_link("pages/2_🕵️_Central_Auditor.py", label="Central Auditor", icon="🕵️")
-        st.page_link("pages/Ask_AI_Station.py", label="Ask AI Station", icon="🤖")
-        st.page_link("pages/3_📊_Model_Metrics.py", label="Model Metrics", icon="📊")
+        st.page_link("pages/1_🕵️_Human_Labelling.py", label="Human Labelling", icon="🕵️")
+        st.page_link("pages/2_🤖_Ask_AI_Labelling.py", label="Ask AI Labelling", icon="🤖")
+        st.page_link("pages/3_📊_Label_Metrics_Dashboard.py", label="Label Metrics Dashboard", icon="📊")
         st.divider()
         st.caption("v2.0 Cloud Architecture")
 
