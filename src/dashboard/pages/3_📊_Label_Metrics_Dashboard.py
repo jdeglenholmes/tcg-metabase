@@ -79,14 +79,15 @@ else:
                 help="Higher numbers mean stronger pull for the KNN algorithm.",
                 format="%f",
                 min_value=0,
-                max_value=max(style_breakdown['Human_Audit'].max(), 1),
+                # FIX: Force cast the Numpy int64 into a native Python integer
+                max_value=int(max(style_breakdown['Human_Audit'].max(), 1)),
             ),
             "pipeline_auto": "Auto-Classified"
         },
         hide_index=True,
         use_container_width=True
     )
-
+    
     st.divider()
 
     # Taxonomy Expansion Recommendations
