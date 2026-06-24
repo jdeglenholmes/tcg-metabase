@@ -1,25 +1,95 @@
-
-# Imports
-import sys 
+# src/dashboard/utils.py
+import streamlit as st
+import pandas as pd
+import yaml
+import subprocess
+import sys
+import datetime 
+import json
+import re  
+from sqlalchemy import text
+from src.database.connection import get_engine
+import requests
 import os
 
-## identify project root path as the system path
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if root_dir not in sys.path:
-    sys.path.insert(0, root_dir)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
-import streamlit as st
-from src.dashboard.utils import render_sidebar
+# --- TAXONOMIES ---
+ART_STYLE_KEYS = [
+    # --- Physical & Traditional Media ---
+    "watercolor_and_ink", "heavy_acrylic_oil", "chalk_pastel", "textile_craft", 
+    "handcrafted_diorama", "pen_and_ink_stippling",
+    
+    # --- Digital & Commercial ---
+    "crisp_digital_portrait", "3d_cgi_render", "pixel_art", "retro_90s_anime", 
+    "standard_generic", "comic_book_illustration", "stained_glass", "pop_art",
+    
+    # --- Cultural & Historical ---
+    "ukiyo_e"
+]
 
-st.set_page_config(page_title="TCG Labeler", layout="wide")
-render_sidebar()
+AESTHETIC_KEYS = [
+    "kinetic", "chaotic", "modern", "whimsical", "legendary", "neutral",
+    "minimalist", "maximalist", "cinematic", "surrealist", "traditional_hand_painted",
+    "eerie_gothic", "cottagecore", "lush_botanical", "neon_cyberpunk", "high_stakes_showdown",
+    "celestial", "has_cameo", "is_trainer_gallery"
+]
 
-st.title("TCG Active Learning Command Center")
-st.markdown("""
-Welcome to the cloud-hosted auditing station. 
+# --- UI COMPONENTS ---
+def render_sidebar():
+    with st.sidebar:
+        st.title("TCG Auditor")
+        st.page_link("app.py", label="Home", icon="🏠")
+        st.page_link("pages/2_🕵️_Central_Auditor.py", label="Central Auditor", icon="🕵️")
+        st.page_link("pages/Ask_AI_Station.py", label="Ask AI Station", icon="🤖")
+        st.page_link("pages/3_📊_Model_Metrics.py", label="Model Metrics", icon="📊")
+        st.divider()
+        st.caption("v2.0 Cloud Architecture")
 
-**Available Modules:**
-* **🕵️ Human Labelling:** Swipe through unconfident predictions and lock in Human Anchors.
-* **🤖 Ask AI Labelling:** Consult the Gemini Vision model for a second opinion on highly nuanced or ambiguous art styles.
-* **📊 Label Metrics Dashboard:** Track active learning performance, cluster gravity, and identify areas where the taxonomy may need expansion.
-""")
+# --- DATABASE OPERATIONS ---
+def get_unlabeled_cards(limit=1):
+    """Fetches cards that the active learning loop flagged as needing manual review."""
+    engine = get_engine()
+    
+    query = """
+        SELECT card_id, name, supertype, image_url, set_id 
+        FROM tcg_cards 
+        WHERE art_style = '"Manual review needed"'
+        AND image_url IS NOT NULL
+        LIMIT :limit;
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql_query(text(query), conn, params={"limit": limit})
+    return df
+
+def save_label_to_db(card_id, selections):
+    """
+    Saves manual tag selections to the database. 
+    User tracking is disabled; logs as 'Human_Audit'.
+    """
+    engine = get_engine()
+    tags_json = json.dumps(selections)
+    
+    # Extract the true values for the dedicated columns
+    true_art = [k for k, v in selections.items() if v and k in ART_STYLE_KEYS]
+    true_aes = [k for k, v in selections.items() if v and k in AESTHETIC_KEYS]
+    
+    with engine.begin() as conn:
+        query = """
+            UPDATE tcg_cards 
+            SET tags = :tags, 
+                labeled_by = 'Human_Audit', -- Hardcoded to replace the old user_name
+                art_style = :art, 
+                card_aesthetic = :aes, 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE card_id = :card_id;
+        """
+        conn.execute(
+            text(query), 
+            {
+                "tags": tags_json, 
+                "art": json.dumps(true_art), 
+                "aes": json.dumps(true_aes), 
+                "card_id": card_id
+            }
+        )
