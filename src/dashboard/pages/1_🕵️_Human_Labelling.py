@@ -1,20 +1,29 @@
 import sys
 import os
-# Go up 3 levels from src/dashboard/pages/ to the repository root
+import requests
+from io import BytesIO
+from PIL import Image
+
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
-    
+
 import streamlit as st
 import json
 from sqlalchemy import text
+from pydantic import BaseModel, Field
+from google import genai
 from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS
 
-st.set_page_config(page_title="Central Auditor", layout="wide")
+class AppraisalResult(BaseModel):
+    style: str = Field(description="The exact name of the selected art style category.")
+    reason: str = Field(description="A brief, 1-sentence justification explaining the medium or aesthetic.")
+
+st.set_page_config(page_title="Human Labelling", layout="wide")
 render_sidebar()
 
 st.title("⚖️ Central Auditor (Active Learning)")
-st.markdown("Override incorrect labels to create high-gravity 'Human Anchors' for the ML pipeline.")
+st.markdown("Lock in human anchors, or ask the Gemini model for a second opinion directly from the card view.")
 
 engine = get_engine()
 
@@ -28,76 +37,98 @@ with col2:
         selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + ART_STYLE_KEYS)
 
 # --- 2. BUILD THE QUERY ---
+# Added: illustrator, rarity, market_price
 query_str = """
-    SELECT card_id, name, illustrator, image_url, art_style, labeled_by 
+    SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style, labeled_by 
     FROM tcg_cards 
     WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
 """
 
 if view_mode == "Unlabeled / Needs Review":
-    # LINE 31 FIXED: Clean SQL termination
     query_str += " AND (art_style IS NULL OR art_style = '\"Manual review needed\"')"
 else:
     if selected_style and selected_style != "ALL":
         query_str += f" AND art_style = '\"{selected_style}\"'"
     else:
-        query_str += " AND art_style IS NOT NULL AND art_style != '\"Manual review needed\"'"
+        query_str += " AND art_style != '\"Manual review needed\"' AND art_style IS NOT NULL"
 
-query_str += " ORDER BY RANDOM() LIMIT 20" 
+query_str += " LIMIT 24;"
 
-# Fetch Data
 with engine.connect() as conn:
     cards = conn.execute(text(query_str)).mappings().fetchall()
 
-# --- 3. THE INTERACTIVE FRAGMENT ---
-@st.fragment
-def render_card_override(card):
-    # Robust parsing to handle both JSON-quoted strings and raw strings
-    current_val = None
-    if card['art_style']:
-        try:
-            current_val = json.loads(card['art_style'])
-        except (json.JSONDecodeError, TypeError):
-            current_val = card['art_style'] # Fallback if it's already a plain string
-            
-    idx = ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0
-    
-    st.image(card['image_url'], use_container_width=True)
-    st.caption(f"** | {card['illustrator']}")
-    
-    if card['labeled_by']:
-         st.markdown(f"*{card['labeled_by']}*")
-    
-    new_style = st.selectbox(
-        "Assign Style:", 
-        options=ART_STYLE_KEYS, 
-        index=idx, 
-        key=f"select_{card['card_id']}",
-        label_visibility="collapsed"
-    )
-    
-    if st.button("Lock Anchor", key=f"btn_{card['card_id']}", use_container_width=True):
-        with engine.begin() as conn:
-            conn.execute(text("""
-                UPDATE tcg_cards 
-                SET art_style = :style, labeled_by = 'Human_Audit'
-                WHERE card_id = :id
-            """), {
-                "style": json.dumps(new_style), 
-                "id": card['card_id']
-            })
-        st.success("Anchor Locked!")
-        
-# --- 4. RENDER THE GRID ---
+# --- 3. RENDER THE GRID ---
 st.divider()
 if not cards:
-    st.info("No cards found for this filter combination.")
+    st.info("No cards found matching this criteria.")
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
         with cols[i % 4]:
             with st.container(border=True):
-                 render_card_override(card)
-                 
-    if st.button("🔄 Fetch Next Batch of 20", type="primary"):
-        st.rerun()
+                st.image(card['image_url'], use_container_width=True)
+                
+                # --- NEW EXPANDABLE METADATA SECTION ---
+                with st.expander(f"📖 {card['name']} Details"):
+                    st.markdown(f"Illustrator:")
+                    st.markdown(f"Rarity:")
+                    price_display = f"${card['market_price']:.2f}" if card['market_price'] else "N/A"
+                    st.markdown(f"**Market Price:** {price_display}")
+                
+                # Current status
+                current_val = card['art_style']
+                if isinstance(current_val, str) and current_val.startswith('"'):
+                    try:
+                        current_val = json.loads(current_val)
+                    except:
+                        pass
+                idx = ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0
+                
+                # Dropdown
+                new_style = st.selectbox(
+                    "Assign Style:", 
+                    options=ART_STYLE_KEYS, 
+                    index=idx, 
+                    key=f"select_{card['card_id']}",
+                    label_visibility="collapsed"
+                )
+                
+                # Inline Gemini AI Call
+                if st.button("🤖 Ask Gemini", key=f"gemini_{card['card_id']}", use_container_width=True):
+                    with st.spinner("Analyzing artwork..."):
+                        try:
+                            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+                            img_response = requests.get(card['image_url'])
+                            img = Image.open(BytesIO(img_response.content))
+                            
+                            prompt = f"Classify this Pokemon card art into exactly ONE of these categories: {ART_STYLE_KEYS}"
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=[prompt, img],
+                                config={
+                                    "temperature": 0.0,
+                                    "response_mime_type": "application/json",
+                                    "response_schema": AppraisalResult,
+                                }
+                            )
+                            ai_decision = AppraisalResult.model_validate_json(response.text)
+                            if ai_decision.style in ART_STYLE_KEYS:
+                                st.success(f"**{ai_decision.style}**")
+                                st.caption(ai_decision.reason)
+                            else:
+                                st.error(f"Invalid style chosen: {ai_decision.style}")
+                        except Exception as e:
+                            st.error(f"API Error: {e}")
+                
+                # Save Label
+                if st.button("Lock Anchor", key=f"btn_{card['card_id']}", type="primary", use_container_width=True):
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            UPDATE tcg_cards 
+                            SET art_style = :style, labeled_by = 'Human_Audit'
+                            WHERE card_id = :id
+                        """), {
+                            "style": json.dumps(new_style), 
+                            "id": card['card_id']
+                        })
+                    st.rerun()
