@@ -40,9 +40,9 @@ def render_sidebar():
     with st.sidebar:
         st.title("TCG Auditor")
         st.page_link("app.py", label="Home", icon="🏠")
-        st.page_link("pages/1_🕵️_Human_Labelling.py", label="Human Labelling", icon="🕵️")
-        st.page_link("pages/2_🩹_Data_Healing_Station.py", label="Data Healing Station", icon="🩹")
-        st.page_link("pages/3_📊_Label_Metrics_Dashboard.py", label="Label Metrics Dashboard", icon="📊")
+        st.page_link("pages/1_Human_Labelling.py", label="Human Labelling", icon="🕵️")
+        st.page_link("pages/2_Data_Healing.py", label="Data Healing Station", icon="🩹")
+        st.page_link("pages/3_Model_Metrics.py", label="Label Metrics Dashboard", icon="📊")
         st.divider()
         st.caption("v2.0 Cloud Architecture")
 
