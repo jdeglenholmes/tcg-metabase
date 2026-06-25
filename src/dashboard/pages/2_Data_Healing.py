@@ -66,10 +66,19 @@ else:
                 st.image(card['image_url'], use_container_width=True)
                 
                 with st.expander(f"📖 {card['name']} Details"):
-                    st.markdown(f"Current Supertype:")
-                    st.markdown(f"Illustrator:")
-                    st.markdown(f"Rarity:")
-                    price_display = f"${card['market_price']:.2f}" if card['market_price'] else "N/A"
+                    
+                    # Helper function to catch None, empty strings, spaces, and "Unknown"
+                    def safe_display(val):
+                        if not val or str(val).strip() in ["", "Unknown", "None"]:
+                            return "⚠️ Missing"
+                        return str(val)
+
+                    st.markdown(f"**Current Supertype:** {safe_display(card.get('supertype'))}")
+                    st.markdown(f"**Illustrator:** {safe_display(card.get('illustrator'))}")
+                    st.markdown(f"**Rarity:** {safe_display(card.get('rarity'))}")
+                    
+                    price = card.get('market_price')
+                    price_display = f"${price:.2f}" if price else "⚠️ Missing"
                     st.markdown(f"**Market Price:** {price_display}")
                 
                 # --- DYNAMIC INPUT UI ---
