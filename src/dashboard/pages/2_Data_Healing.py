@@ -25,7 +25,7 @@ missing_target = st.selectbox(
         "Missing Illustrator", 
         "Missing Rarity", 
         "Missing Market Price",
-        "Unreviewed Aesthetics (Cameos & Trainer Gallery)" # NEW OPTION
+        "Unreviewed Aesthetics (Cameos & Trainer Gallery)"
     ]
 )
 
@@ -39,13 +39,12 @@ elif missing_target == "Missing Market Price":
     sql_condition = "market_price IS NULL"
     target_column = "market_price"
 else:
-    # Target cards that haven't had their aesthetic JSON array built yet
     sql_condition = "card_aesthetic IS NULL"
     target_column = "card_aesthetic"
 
-# Added card_aesthetic to the SELECT statement
+# Added 'supertype' to the SELECT statement
 query = text(f"""
-    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic
+    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype
     FROM tcg_cards
     WHERE ({sql_condition})
     LIMIT 24
@@ -67,6 +66,7 @@ else:
                 st.image(card['image_url'], use_container_width=True)
                 
                 with st.expander(f"📖 {card['name']} Details"):
+                    st.markdown(f"Current Supertype:")
                     st.markdown(f"Illustrator:")
                     st.markdown(f"Rarity:")
                     price_display = f"${card['market_price']:.2f}" if card['market_price'] else "N/A"
@@ -77,12 +77,10 @@ else:
                     new_val = st.number_input(f"New Price ($):", min_value=0.0, format="%.2f", key=f"input_{card['card_id']}")
                 
                 elif target_column == "card_aesthetic":
-                    # Special UI for boolean aesthetic tags
                     st.markdown("**Tag Aesthetics:**")
                     has_cameo = st.checkbox("Has Cameo", key=f"cam_{card['card_id']}")
                     is_tg = st.checkbox("Is Trainer Gallery", key=f"tg_{card['card_id']}")
                     
-                    # Package them into a JSON array string
                     aes_list = []
                     if has_cameo: aes_list.append("has_cameo")
                     if is_tg: aes_list.append("is_trainer_gallery")
@@ -91,15 +89,37 @@ else:
                 else:
                     new_val = st.text_input(f"New {target_column.capitalize()}:", key=f"input_{card['card_id']}")
                 
+                # --- NEW: SUPERTYPE OVERRIDE ---
+                valid_supertypes = ["Pokemon", "Trainer", "Energy", "Item"]
+                current_sup = card['supertype'] if card['supertype'] in valid_supertypes else "Pokemon"
+                
+                new_supertype = st.selectbox(
+                    "Supertype Override:", 
+                    options=valid_supertypes,
+                    index=valid_supertypes.index(current_sup),
+                    key=f"sup_{card['card_id']}"
+                )
+                
                 # --- SAVE LOGIC ---
                 if st.button("Save Fix", key=f"save_{card['card_id']}", use_container_width=True, type="primary"):
-                    # For aesthetics, we always want to save (even if empty string '[]') 
-                    # so it clears from the queue.
-                    if new_val or new_val == 0.0 or new_val == "[]":
+                    supertype_changed = new_supertype != current_sup
+                    
+                    # Allow save if data was entered OR if they just wanted to fix the supertype
+                    if new_val or new_val == 0.0 or new_val == "[]" or supertype_changed:
                         with engine.begin() as conn:
-                            conn.execute(text(f"""
-                                UPDATE tcg_cards
-                                SET {target_column} = :new_val
-                                WHERE card_id = :id
-                            """), {"new_val": new_val, "id": card['card_id']})
+                            # If they provided a new value for the target column
+                            if new_val or new_val == 0.0 or new_val == "[]":
+                                conn.execute(text(f"""
+                                    UPDATE tcg_cards
+                                    SET {target_column} = :new_val, supertype = :supertype
+                                    WHERE card_id = :id
+                                """), {"new_val": new_val, "supertype": new_supertype, "id": card['card_id']})
+                            # If they left the target blank and ONLY changed the supertype
+                            else:
+                                conn.execute(text(f"""
+                                    UPDATE tcg_cards
+                                    SET supertype = :supertype,
+                                        {target_column} = 'N/A' -- Autofill to remove it from the queue
+                                    WHERE card_id = :id
+                                """), {"supertype": new_supertype, "id": card['card_id']})
                         st.rerun()
