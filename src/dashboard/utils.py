@@ -18,7 +18,7 @@ from src.database.connection import get_engine
 ART_STYLE_KEYS = [
     # --- Physical & Traditional Media ---
     "watercolor_and_ink", "heavy_acrylic_oil", "chalk_pastel", "textile_craft", 
-    "handcrafted_diorama", "pen_and_ink_stippling",
+    "handcrafted_diorama", "pen_and_ink_stippling", "soft_geometric_stencil",
     
     # --- Digital & Commercial ---
     "crisp_digital_portrait", "3d_cgi_render", "pixel_art", "retro_90s_anime", 
@@ -41,7 +41,7 @@ def render_sidebar():
         st.title("TCG Auditor")
         st.page_link("app.py", label="Home", icon="🏠")
         st.page_link("pages/1_🕵️_Human_Labelling.py", label="Human Labelling", icon="🕵️")
-        st.page_link("pages/2_🤖_Ask_AI_Labelling.py", label="Ask AI Labelling", icon="🤖")
+        st.page_link("pages/2_🩹_Data_Healing_Station.py", label="Data Healing Station", icon="🩹")
         st.page_link("pages/3_📊_Label_Metrics_Dashboard.py", label="Label Metrics Dashboard", icon="📊")
         st.divider()
         st.caption("v2.0 Cloud Architecture")
