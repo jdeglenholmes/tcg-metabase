@@ -32,7 +32,7 @@ missing_target = st.selectbox(
 
 # Added empty string '' checks to ensure all invisible data is caught
 if missing_target == "Missing Illustrator":
-    sql_condition = "illustrator = 'Unknown' OR illustrator IS NULL OR illustrator = '' AND supertype = 'Pokemon' OR 'Pokémon'"
+    sql_condition = "(illustrator = 'Unknown' OR illustrator IS NULL OR illustrator = '') AND supertype IN ('Pokemon', 'Pokémon')"
     target_column = "illustrator"
 elif missing_target == "Missing Rarity":
     sql_condition = "rarity = 'Unknown' OR rarity IS NULL OR rarity = ''"
