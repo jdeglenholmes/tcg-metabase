@@ -27,40 +27,80 @@ st.markdown("Lock in human anchors, or ask the Gemini model for a second opinion
 
 engine = get_engine()
 
-# --- 1. FILTER CONTROLS ---
-col1, col2 = st.columns(2)
+# --- 1. UI CONTROLS ---
+col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
-    view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled"])
+    view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled", "Find Specific Card"])
 with col2:
     selected_style = None
+    search_query = None
     if view_mode == "Currently Labeled":
-        selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + ART_STYLE_KEYS)
+        selected_style = st.selectbox("Filter by specific style:", options=["ALL"] + ART_STYLE_KEYS)
+    elif view_mode == "Find Specific Card":
+        search_query = st.text_input("Enter Card Name or ID:")
+with col3:
+    display_limit = st.number_input("Max Cards to Display:", min_value=4, max_value=200, value=24, step=4)
 
-# --- 2. BUILD THE QUERY ---
-# Added: illustrator, rarity, market_price
-query_str = """
-    SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style, labeled_by 
-    FROM tcg_cards 
-    WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
-"""
+# --- 2. DATA FETCHING (CACHED TO PREVENT LAG) ---
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_cards(mode, style, search, limit):
+    base_query = """
+        SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style, labeled_by 
+        FROM tcg_cards 
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
+    """
+    # Use separate param dictionaries to keep SQLAlchemy perfectly clean
+    params = {}
+    count_params = {}
+    
+    count_query = "SELECT COUNT(*) FROM tcg_cards WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL"
+    
+    if mode == "Unlabeled / Needs Review":
+        condition = " AND (art_style IS NULL OR art_style = '\"Manual review needed\"')"
+        base_query += condition
+        count_query += condition
+    elif mode == "Currently Labeled":
+        if style and style != "ALL":
+            condition = " AND art_style = :style"
+            base_query += condition
+            count_query += condition
+            params["style"] = f'"{style}"'
+            count_params["style"] = f'"{style}"'
+        else:
+            condition = " AND art_style != '\"Manual review needed\"' AND art_style IS NOT NULL"
+            base_query += condition
+            count_query += condition
+    elif mode == "Find Specific Card":
+        if search:
+            condition = " AND (name ILIKE :search OR card_id ILIKE :search)"
+            base_query += condition
+            count_query += condition
+            params["search"] = f"%{search}%"
+            count_params["search"] = f"%{search}%"
+        else:
+            return [], 0
+            
+    base_query += " LIMIT :limit;"
+    params["limit"] = limit
+    
+    with engine.connect() as conn:
+        total_count = conn.execute(text(count_query), count_params).scalar()
+        fetched_cards = conn.execute(text(base_query), params).mappings().fetchall()
+        return [dict(c) for c in fetched_cards], total_count
 
-if view_mode == "Unlabeled / Needs Review":
-    query_str += " AND (art_style IS NULL OR art_style = '\"Manual review needed\"')"
-else:
-    if selected_style and selected_style != "ALL":
-        query_str += f" AND art_style = '\"{selected_style}\"'"
-    else:
-        query_str += " AND art_style != '\"Manual review needed\"' AND art_style IS NOT NULL"
+cards, total_match_count = fetch_cards(view_mode, selected_style, search_query, display_limit)
 
-query_str += " LIMIT 24;"
+# --- 3. METRICS DISPLAY ---
+if view_mode != "Find Specific Card":
+    st.info(f"**Total matching cards in database:** {total_match_count:,} (Showing top {len(cards)})")
 
-with engine.connect() as conn:
-    cards = conn.execute(text(query_str)).mappings().fetchall()
-
-# --- 3. RENDER THE GRID ---
+# --- 4. RENDER THE GRID ---
 st.divider()
 if not cards:
-    st.info("No cards found matching this criteria.")
+    if view_mode == "Find Specific Card" and not search_query:
+        st.info("Enter a name or ID above to search.")
+    else:
+        st.info("No cards found matching this criteria.")
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
@@ -68,24 +108,13 @@ else:
             with st.container(border=True):
                 st.image(card['image_url'], use_container_width=True)
                 
-                # --- NEW EXPANDABLE METADATA SECTION ---
                 with st.expander(f"📖 {card['name']} Details"):
-                    
-                    # Helper function to catch None, empty strings, spaces, and "Unknown"
-                    def safe_display(val):
-                        if not val or str(val).strip() in ["", "Unknown", "None"]:
-                            return "⚠️ Missing"
-                        return str(val)
-
-                    st.markdown(f"**Current Supertype:** {safe_display(card.get('supertype'))}")
-                    st.markdown(f"**Illustrator:** {safe_display(card.get('illustrator'))}")
-                    st.markdown(f"**Rarity:** {safe_display(card.get('rarity'))}")
-                    
-                    price = card.get('market_price')
-                    price_display = f"${price:.2f}" if price else "⚠️ Missing"
+                    st.markdown(f"Illustrator: if card['illustrator'] else '⚠️ Missing'")
+                    st.markdown(f"Rarity: if card['rarity'] else '⚠️ Missing'")
+                    price_display = f"${card['market_price']:.2f}" if card['market_price'] else "⚠️ Missing"
                     st.markdown(f"**Market Price:** {price_display}")
-                    
-                # Current status
+                
+                # Load existing labels
                 current_val = card['art_style']
                 if isinstance(current_val, str) and current_val.startswith('"'):
                     try:
@@ -94,7 +123,6 @@ else:
                         pass
                 idx = ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0
                 
-                # Dropdown
                 new_style = st.selectbox(
                     "Assign Style:", 
                     options=ART_STYLE_KEYS, 
@@ -130,15 +158,16 @@ else:
                         except Exception as e:
                             st.error(f"API Error: {e}")
                 
-                # Save Label
+                # Save Label and clear cache to update UI seamlessly
                 if st.button("Lock Anchor", key=f"btn_{card['card_id']}", type="primary", use_container_width=True):
                     with engine.begin() as conn:
                         conn.execute(text("""
                             UPDATE tcg_cards 
-                            SET art_style = :style, labeled_by = 'Human_Audit'
+                            SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
                             WHERE card_id = :id
                         """), {
                             "style": json.dumps(new_style), 
                             "id": card['card_id']
                         })
+                    fetch_cards.clear()
                     st.rerun()

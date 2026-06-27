@@ -1,10 +1,10 @@
 import sys
 import os
-# Go up 3 levels from src/dashboard/pages/ to the repository root
+
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
-    
+
 import streamlit as st
 import pandas as pd
 import json
@@ -15,15 +15,18 @@ st.set_page_config(page_title="Model Metrics", layout="wide")
 render_sidebar()
 
 st.title("📊 Active Learning Metrics")
-st.markdown("Track the health of the classification pipeline and human anchor distribution.")
+st.markdown("Track the health of the classification pipeline, human anchor distribution, and weekly velocity.")
 
 engine = get_engine()
 
-# Fetch live data from Supabase
 @st.cache_data(ttl=60)
 def fetch_metrics():
+    # Extracts the styles and flags if the card was updated in the last 7 days
     query = text("""
-        SELECT art_style, labeled_by
+        SELECT 
+            art_style, 
+            labeled_by,
+            CASE WHEN updated_at >= NOW() - INTERVAL '7 days' THEN 1 ELSE 0 END as recent_update
         FROM tcg_cards
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
           AND art_style IS NOT NULL;
@@ -31,7 +34,6 @@ def fetch_metrics():
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
         
-    # Clean up JSON string formatting if necessary
     df['clean_style'] = df['art_style'].apply(
         lambda x: json.loads(x) if isinstance(x, str) and x.startswith('"') else x
     )
@@ -46,29 +48,32 @@ else:
     total_cards = len(df)
     needs_review = len(df[df['clean_style'] == 'Manual review needed'])
     human_anchors = len(df[df['labeled_by'] == 'Human_Audit'])
-    auto_labeled = total_cards - needs_review - human_anchors
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Classified Cards", f"{total_cards:,}")
-    col2.metric("Locked Human Anchors", f"{human_anchors:,}")
-    col3.metric("Pending Manual Review", f"{needs_review:,}")
+    col1.metric("Total Labeled/Reviewed", total_cards)
+    col2.metric("Human Anchors Locked", human_anchors)
+    col3.metric("Pending Review", needs_review)
 
     st.divider()
 
-    # Anchor Distribution Analysis
-    st.subheader("Gravity Report: Human Anchors per Category")
+    st.subheader("Gravity by Art Style (Taxonomy Distribution)")
     
-    # Filter out the review bucket
-    valid_df = df[df['clean_style'] != 'Manual review needed']
-    
-    # Group by style and count human vs auto
-    style_breakdown = valid_df.groupby(['clean_style', 'labeled_by']).size().unstack(fill_value=0).reset_index()
-    
-    # Ensure 'Human_Audit' column exists even if 0
-    if 'Human_Audit' not in style_breakdown.columns:
-        style_breakdown['Human_Audit'] = 0
+    # Calculate breakdown including 7-day velocity
+    breakdown_data = []
+    for style in ART_STYLE_KEYS:
+        style_df = df[df['clean_style'] == style]
+        human_count = len(style_df[style_df['labeled_by'] == 'Human_Audit'])
+        auto_count = len(style_df[style_df['labeled_by'] != 'Human_Audit'])
+        weekly_growth = style_df['recent_update'].sum()
         
-    style_breakdown = style_breakdown.sort_values(by='Human_Audit', ascending=False)
+        breakdown_data.append({
+            "clean_style": style,
+            "Human_Audit": human_count,
+            "pipeline_auto": auto_count,
+            "7_Day_Growth": f"+{weekly_growth}" if weekly_growth > 0 else "-"
+        })
+        
+    style_breakdown = pd.DataFrame(breakdown_data).sort_values(by="Human_Audit", ascending=False)
 
     st.dataframe(
         style_breakdown,
@@ -79,10 +84,10 @@ else:
                 help="Higher numbers mean stronger pull for the KNN algorithm.",
                 format="%f",
                 min_value=0,
-                # FIX: Force cast the Numpy int64 into a native Python integer
                 max_value=int(max(style_breakdown['Human_Audit'].max(), 1)),
             ),
-            "pipeline_auto": "Auto-Classified"
+            "pipeline_auto": "Auto-Classified",
+            "7_Day_Growth": "7-Day Velocity"
         },
         hide_index=True,
         use_container_width=True
@@ -99,10 +104,7 @@ else:
     if weak_categories:
         st.warning(f"**Low Gravity Detected:** The following styles have fewer than 5 Human Anchors. The model will struggle to assign these until you lock in more examples:\n\n`{', '.join(weak_categories)}`")
     
-    # Check for massive imbalances (like crisp_digital_portrait acting as a black hole)
     if 'pipeline_auto' in style_breakdown.columns:
         massive_categories = style_breakdown[style_breakdown['pipeline_auto'] > 2000]['clean_style'].tolist()
         if massive_categories:
             st.error(f"**Taxonomy Bottleneck:** The following categories are absorbing a massive amount of cards (`{', '.join(massive_categories)}`). The taxonomy here may not be specific enough. Consider breaking these down into sub-styles to capture more nuanced artwork.")
-    else:
-        st.success("Your cluster distribution is currently balanced. No immediate taxonomy fracturing required.")
