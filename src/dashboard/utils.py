@@ -19,6 +19,7 @@ ART_STYLE_KEYS = [
     # --- Physical & Traditional Media ---
     "watercolor_and_ink", "heavy_acrylic_oil", "chalk_pastel", "textile_craft", 
     "handcrafted_diorama", "pen_and_ink_stippling", "soft_geometric_stencil",
+    "textured_canvas_painting",
     
     # --- Digital & Commercial ---
     "crisp_digital_portrait", "3d_cgi_render", "pixel_art", "retro_90s_anime", 

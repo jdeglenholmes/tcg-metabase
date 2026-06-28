@@ -109,8 +109,8 @@ else:
                 st.image(card['image_url'], use_container_width=True)
                 
                 with st.expander(f"📖 {card['name']} Details"):
-                    st.markdown(f"Illustrator: if card['illustrator'] else '⚠️ Missing'")
-                    st.markdown(f"Rarity: if card['rarity'] else '⚠️ Missing'")
+                    st.markdown(f"Illustrator: " if card['illustrator'] else "⚠️ Missing")
+                    st.markdown(f"Rarity: " if card['rarity'] else "⚠️ Missing")
                     price_display = f"${card['market_price']:.2f}" if card['market_price'] else "⚠️ Missing"
                     st.markdown(f"**Market Price:** {price_display}")
                 
