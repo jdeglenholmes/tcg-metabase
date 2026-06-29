@@ -32,3 +32,4 @@ data/
 ./*.pkl
 ./models
 src/ml/models/
+*supabase
