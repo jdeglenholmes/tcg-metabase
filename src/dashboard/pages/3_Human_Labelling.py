@@ -18,6 +18,29 @@ st.markdown("Lock in clean human anchors for the high-confidence, easily identif
 
 engine = get_engine()
 
+# --- OPTIMIZED HELPER FUNCTIONS ---
+# Defined once, outside the loop, to improve Streamlit rendering performance
+def safe_display(val):
+    if not val or str(val).strip() in ["", "Unknown", "None"]:
+        return "⚠️ Missing"
+    return str(val)
+
+def parse_art_style(raw_style, fallback_style):
+    if not raw_style:
+        return fallback_style
+    if isinstance(raw_style, list) and len(raw_style) > 0:
+        return raw_style[0]
+    if isinstance(raw_style, str):
+        try:
+            parsed = json.loads(raw_style)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                return parsed[0]
+            if isinstance(parsed, str):
+                return parsed
+        except Exception:
+            return raw_style
+    return fallback_style
+
 # --- 1. FILTER CONTROLS ---
 col1, col2 = st.columns(2)
 with col1:
@@ -25,11 +48,9 @@ with col1:
 with col2:
     selected_style = None
     if view_mode == "Currently Labeled":
-        # Let the user audit ANY style in the taxonomy
         selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + ART_STYLE_KEYS)
 
 # --- 2. BUILD THE QUERY ---
-# UPDATED: Now fetching rarity and market_price
 query_str = """
     SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style, labeled_by 
     FROM tcg_cards 
@@ -51,56 +72,50 @@ query_str += " ORDER BY RANDOM() LIMIT 24"
 with engine.connect() as conn:
     cards = conn.execute(text(query_str), params).mappings().fetchall()
 
+st.divider()
+
 # --- 3. DISPLAY GRID ---
 if not cards:
-    st.success("No cards found matching this filter! Great job.")
+    st.success("🎉 No cards found matching this filter! Your baseline is secure.")
 else:
+    st.info(f"Displaying up to 24 cards requiring your review.")
     cols = st.columns(4)
     for i, card in enumerate(cards):
         with cols[i % 4]:
-            st.image(card['image_url'], use_container_width=True)
-            
-            # UPDATED: Rich Metadata Display
-            st.markdown(f"**{card['name']}**")
-            st.caption(f"🎨 {card.get('illustrator', 'Unknown')}  \n✨ {card.get('rarity', 'N/A')} | 💰 ${card.get('market_price', 0.0)}")
-            
-            # --- ROBUST JSON PARSER ---
-            current_val = ART_STYLE_KEYS[0] # Fallback
-            raw_style = card.get('art_style')
-            
-            if raw_style:
-                if isinstance(raw_style, list) and len(raw_style) > 0:
-                    current_val = raw_style[0]
-                elif isinstance(raw_style, str):
-                    try:
-                        parsed = json.loads(raw_style)
-                        if isinstance(parsed, list) and len(parsed) > 0:
-                            current_val = parsed[0]
-                        elif isinstance(parsed, str):
-                            current_val = parsed
-                    except Exception:
-                        current_val = raw_style
-                        
-            # UPDATED: Use global ART_STYLE_KEYS to prevent default-to-zero bugs
-            idx = ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0
-            
-            new_style = st.selectbox(
-                "Assign Style:", 
-                options=ART_STYLE_KEYS, 
-                index=idx, 
-                key=f"select_{card['card_id']}_{i}",
-                label_visibility="collapsed"
-            )
-            
-            if st.button("Lock Anchor", key=f"btn_{card['card_id']}_{i}", type="primary", use_container_width=True):
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                        UPDATE tcg_cards 
-                        SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
-                        WHERE card_id = :id
-                    """), {
-                        "style": json.dumps([new_style]), 
-                        "id": card['card_id']
-                    })
-                st.toast(f"Locked {card['name']} as {new_style}!")
-                st.rerun()
+            # Standardized visual framing
+            with st.container(border=True):
+                st.image(card['image_url'], use_container_width=True)
+                
+                # Standardized Expandable Metadata
+                with st.expander(f"📖 {card['name']} Details"):
+                    st.markdown(f"**Illustrator:** {safe_display(card.get('illustrator'))}")
+                    st.markdown(f"**Rarity:** {safe_display(card.get('rarity'))}")
+                    
+                    price = card.get('market_price')
+                    price_display = f"${price:.2f}" if price else "⚠️ Missing"
+                    st.markdown(f"**Market Price:** {price_display}")
+                
+                # Fetch and format the correct starting index for the dropdown
+                current_val = parse_art_style(card.get('art_style'), ART_STYLE_KEYS[0])
+                idx = ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0
+                
+                new_style = st.selectbox(
+                    "Assign Style:", 
+                    options=ART_STYLE_KEYS, 
+                    index=idx, 
+                    key=f"select_{card['card_id']}_{i}",
+                    label_visibility="collapsed"
+                )
+                
+                if st.button("Lock Anchor", key=f"btn_{card['card_id']}_{i}", type="primary", use_container_width=True):
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            UPDATE tcg_cards 
+                            SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
+                            WHERE card_id = :id
+                        """), {
+                            "style": json.dumps([new_style]), 
+                            "id": card['card_id']
+                        })
+                    st.toast(f"Locked {card['name']} as {new_style}!")
+                    st.rerun()
