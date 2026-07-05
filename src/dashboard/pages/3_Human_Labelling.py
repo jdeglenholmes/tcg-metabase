@@ -36,27 +36,22 @@ def parse_art_style(raw_style):
         return parsed[0] if isinstance(parsed, list) else parsed
     except: return raw_style
 
-# --- CALLBACK: PERSISTENT SAVE ---
-def update_card_callback(card_id):
-    new_style = st.session_state[f"select_{card_id}"]
-    with engine.begin() as conn:
-        conn.execute(text("""
-            UPDATE tcg_cards 
-            SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
-            WHERE card_id = :id
-        """), {"style": json.dumps([new_style]), "id": card_id})
-    fetch_cards.clear() # Clear cache so UI refreshes immediately
-    st.toast(f"Saved: {new_style}")
+# --- STATE MANAGEMENT ---
+# Store the cards in session state so they survive page refreshes
+if 'card_batch' not in st.session_state:
+    st.session_state['card_batch'] = []
 
-# --- DATA FETCHING (CACHED) ---
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_cards(mode, style, search, limit):
-    base_query = """SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style FROM tcg_cards WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL"""
-    params, count_params = {}, {}
+# --- DATA FETCHING (ON DEMAND) ---
+def load_new_batch(mode, style, search, limit):
+    base_query = """
+        SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style 
+        FROM tcg_cards 
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
+    """
+    params = {}
     
     if mode == "Unlabeled / Needs Review":
-        cond = " AND (art_style IS NULL OR art_style::text IN ('\"Manual review needed\"', '[\"Manual review needed\"]'))"
-        base_query += cond
+        base_query += " AND (art_style IS NULL OR art_style::text IN ('\"Manual review needed\"', '[\"Manual review needed\"]'))"
     elif mode == "Currently Labeled" and style and style != "ALL":
         base_query += " AND art_style @> :style"
         params["style"] = json.dumps([style])
@@ -67,11 +62,39 @@ def fetch_cards(mode, style, search, limit):
     base_query += " ORDER BY RANDOM() LIMIT :limit"
     params["limit"] = limit
     
-    with engine.connect() as conn:
-        return [dict(c) for c in conn.execute(text(base_query), params).mappings().fetchall()]
+    try:
+        with engine.connect() as conn:
+            results = conn.execute(text(base_query), params).mappings().fetchall()
+            # Convert to standard dicts and store in session state
+            st.session_state['card_batch'] = [dict(c) for c in results]
+    except Exception as e:
+        st.error(f"Database Fetch Error: {e}")
+
+# --- CALLBACK: PERSISTENT SAVE ---
+def update_card_callback(card_id):
+    new_style = st.session_state[f"select_{card_id}"]
+    
+    # 1. Safely update the database
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE tcg_cards 
+                SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
+                WHERE card_id = :id
+            """), {"style": json.dumps([new_style]), "id": card_id})
+            
+        # 2. Update the session state so the card doesn't disappear from the UI
+        for card in st.session_state['card_batch']:
+            if card['card_id'] == card_id:
+                card['art_style'] = json.dumps([new_style])
+                break
+                
+        st.toast(f"✅ Saved {new_style}!")
+    except Exception as e:
+        st.error(f"Database Save Error: {e}")
 
 # --- UI CONTROLS ---
-col1, col2, col3 = st.columns([2, 2, 1])
+col1, col2, col3, col4 = st.columns([2, 2, 1, 1.5])
 with col1:
     view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled", "Find Specific Card"])
 with col2:
@@ -79,13 +102,19 @@ with col2:
     search_input = st.text_input("Search:") if view_mode == "Find Specific Card" else None
 with col3:
     display_limit = st.number_input("Limit:", 4, 100, 24, 4)
-
-cards = fetch_cards(view_mode, style_filter, search_input, display_limit)
+with col4:
+    # Explicit user control to fetch new cards
+    st.markdown("<br>", unsafe_allow_html=True) # Alignment fix
+    if st.button("🔄 Fetch New Batch", type="primary", use_container_width=True):
+        load_new_batch(view_mode, style_filter, search_input, display_limit)
 
 # --- RENDER GRID ---
 st.divider()
+
+cards = st.session_state.get('card_batch', [])
+
 if not cards:
-    st.info("No cards found.")
+    st.info("No cards currently loaded. Click 'Fetch New Batch' to begin auditing.")
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
@@ -110,7 +139,7 @@ else:
                     label_visibility="collapsed"
                 )
                 
-                # Gemini Advisor (Non-persistent, purely informational)
+                # Gemini Advisor
                 if st.button("🤖 Ask Gemini", key=f"gemini_{card['card_id']}", use_container_width=True):
                     with st.spinner("Analyzing..."):
                         try:
@@ -119,7 +148,7 @@ else:
                             resp = client.models.generate_content(
                                 model='gemini-2.5-flash',
                                 contents=[f"Classify this into one of: {ART_STYLE_KEYS}", img],
-                                config={"response_mime_type": "application/json", "response_schema": AppraisalResult}
+                                config={"temperature": 0.0, "response_mime_type": "application/json", "response_schema": AppraisalResult}
                             )
                             ai = AppraisalResult.model_validate_json(resp.text)
                             st.success(f"**{ai.style}**")
