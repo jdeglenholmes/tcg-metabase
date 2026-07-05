@@ -60,7 +60,7 @@ if st.button(f"🔍 Find visually similar cards for '{target_style}'", type="pri
                 WHERE image_embedding IS NOT NULL
                   AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
                   AND (art_style IS NULL OR art_style::text = '\"Manual review needed\"' OR art_style::text = '[\"Manual review needed\"]')
-                ORDER BY image_embedding <-> :seed_vec::vector
+                ORDER BY image_embedding <-> CAST(:seed_vec as vector)
                 LIMIT 24
             """)
             
