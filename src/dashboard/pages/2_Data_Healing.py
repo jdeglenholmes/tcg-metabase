@@ -18,6 +18,54 @@ st.markdown("Resolve missing or 'Unknown' database attributes to maintain high-f
 
 engine = get_engine()
 
+def render_missing_data_visualizations():
+    engine = get_engine()
+    
+    st.divider()
+    st.subheader("📊 Missing Metadata Landscape")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Overall Missing Data**")
+        overall_query = text("""
+            SELECT 
+                ROUND((COUNT(*) FILTER (WHERE illustrator IS NULL OR illustrator IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Illustrator %",
+                ROUND((COUNT(*) FILTER (WHERE market_price IS NULL OR market_price = 0) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Price %",
+                ROUND((COUNT(*) FILTER (WHERE rarity IS NULL OR rarity IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Rarity %"
+            FROM tcg_cards
+            WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
+        """)
+        with engine.connect() as conn:
+            overall_df = pd.read_sql(overall_query, conn)
+        
+        # Melt for easy charting
+        overall_melt = overall_df.melt(var_name="Category", value_name="Percentage")
+        st.bar_chart(overall_melt.set_index("Category"))
+        
+    with col2:
+        st.markdown("**Missing Illustrator by Art Style (Top 10 Worst Offenders)**")
+        # Only looks at Human_Audited cards so the data isn't skewed by unverified styles
+        genre_query = text("""
+            SELECT 
+                art_style::text as "Art Style",
+                ROUND((COUNT(*) FILTER (WHERE illustrator IS NULL OR illustrator IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing %"
+            FROM tcg_cards
+            WHERE labeled_by = 'Human_Audit' 
+              AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
+            GROUP BY art_style::text
+            HAVING COUNT(*) > 5 -- Require at least a small sample size
+            ORDER BY "Missing %" DESC
+            LIMIT 10
+        """)
+        with engine.connect() as conn:
+            genre_df = pd.read_sql(genre_query, conn)
+            
+        if not genre_df.empty:
+            st.bar_chart(genre_df.set_index("Art Style"))
+        else:
+            st.info("Not enough audited data to generate genre breakdown.")
+
 # --- TARGET SELECTOR ---
 missing_target = st.selectbox(
     "Select Missing Data Category to Resolve:",
@@ -139,3 +187,5 @@ else:
                                     WHERE card_id = :id
                                 """), {"supertype": new_supertype, "id": card['card_id']})
                     st.rerun()
+                    
+render_missing_data_visualizations()

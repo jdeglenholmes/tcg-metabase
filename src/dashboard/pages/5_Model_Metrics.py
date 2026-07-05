@@ -1,103 +1,104 @@
 import sys
 import os
+import pandas as pd
+import streamlit as st
+from sqlalchemy import text
 
+# Setup paths
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-import streamlit as st
-import pandas as pd
-import json
-from sqlalchemy import text
-from src.dashboard.utils import render_sidebar, get_engine
+from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS
 
 st.set_page_config(page_title="Model Metrics", layout="wide")
 render_sidebar()
 
-st.title("📊 Active Learning Metrics")
-st.markdown("Track the health of the classification pipeline, human anchor distribution, and weekly velocity.")
+st.title("📊 Model Metrics & Ground Truth")
+st.markdown("Track the strict, human-verified baseline required for supervised classifier training.")
 
 engine = get_engine()
 
+# --- 1. DATA FETCHING ---
 @st.cache_data(ttl=60)
 def fetch_metrics():
-    query = text("""
+    # Progress & Baseline
+    progress_query = text("""
         SELECT 
-            art_style, 
-            labeled_by,
-            CASE WHEN updated_at >= NOW() - INTERVAL '7 days' THEN 1 ELSE 0 END as recent_update
+            COUNT(*) as total_cards,
+            COUNT(*) FILTER (WHERE labeled_by = 'Human_Audit') as audited_cards
         FROM tcg_cards
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
-          AND art_style IS NOT NULL;
     """)
+    
+    # 24-Hour Velocity
+    velocity_query = text("""
+        SELECT 
+            art_style::text as "Art Style",
+            COUNT(*) as "24h Growth"
+        FROM tcg_cards
+        WHERE labeled_by = 'Human_Audit' 
+          AND updated_at >= NOW() - INTERVAL '1 day'
+          AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
+        GROUP BY art_style::text
+        ORDER BY "24h Growth" DESC
+    """)
+    
+    # Ground Truth Distribution (For ML Readiness)
+    distribution_query = text("""
+        SELECT 
+            art_style::text as "Art Style",
+            COUNT(*) as "Total Anchors"
+        FROM tcg_cards
+        WHERE labeled_by = 'Human_Audit'
+          AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
+        GROUP BY art_style::text
+        ORDER BY "Total Anchors" DESC
+    """)
+    
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
+        progress = conn.execute(progress_query).mappings().fetchone()
+        velocity_df = pd.read_sql(velocity_query, conn)
+        distribution_df = pd.read_sql(distribution_query, conn)
         
-    # --- ROBUST JSON PARSER FOR PANDAS ---
-    def parse_style(val):
-        if pd.isna(val): return None
-        if isinstance(val, list): return val[0] if len(val) > 0 else None
-        if isinstance(val, str):
-            try:
-                parsed = json.loads(val)
-                if isinstance(parsed, list) and len(parsed) > 0:
-                    return parsed[0]
-                if isinstance(parsed, str):
-                    return parsed
-            except Exception:
-                pass
-        return val
+    return progress, velocity_df, distribution_df
 
-    df['clean_style'] = df['art_style'].apply(parse_style)
-    
-    # Mathematical Grouping
-    style_breakdown = df.groupby(['clean_style', 'labeled_by']).size().unstack(fill_value=0).reset_index()
-    
-    # Ensure columns exist to prevent Streamlit UI crashes if a queue is empty
-    for col in ['Human_Audit', 'Model_Auto', 'Model_Ambiguous']:
-        if col not in style_breakdown.columns:
-            style_breakdown[col] = 0
-            
-    # Calculate 7-day velocity
-    velocity = df[df['recent_update'] == 1].groupby('clean_style').size().reset_index(name='7_Day_Growth')
-    style_breakdown = pd.merge(style_breakdown, velocity, on='clean_style', how='left').fillna({'7_Day_Growth': 0})
-    
-    return style_breakdown
+progress, velocity_df, distribution_df = fetch_metrics()
 
-style_breakdown = fetch_metrics()
+# --- 2. TOP LEVEL KPIs ---
+st.subheader("Target: 50+ Anchors per Core Style")
+col1, col2, col3 = st.columns(3)
 
-# --- Display Data ---
-st.dataframe(
-    style_breakdown,
-    column_config={
-        "clean_style": "Art Style",
-        "Human_Audit": st.column_config.ProgressColumn(
-            "Human Anchors (Gravity)",
-            help="Higher numbers mean stronger pull for the discovery algorithm.",
-            format="%f",
-            min_value=0,
-            max_value=int(max(style_breakdown['Human_Audit'].max(), 1)),
-        ),
-        "Model_Auto": "Auto-Classified",
-        "Model_Ambiguous": "Pending Discovery",
-        "7_Day_Growth": "7-Day Velocity"
-    },
-    hide_index=True,
-    use_container_width=True
-)
+total = progress['total_cards'] or 0
+audited = progress['audited_cards'] or 0
+pending = total - audited
+completion_pct = (audited / total * 100) if total > 0 else 0
+
+col1.metric("Verified Ground Truth", f"{audited:,}")
+col2.metric("Pending Discovery", f"{pending:,}")
+col3.metric("Baseline Completion", f"{completion_pct:.2f}%")
 
 st.divider()
 
-# Taxonomy Expansion Recommendations
-st.subheader("💡 Taxonomy Recommendations")
-st.markdown("Based on current active learning data, these areas require attention:")
+# --- 3. VISUALIZATIONS ---
+col_left, col_right = st.columns(2)
 
-weak_categories = style_breakdown[style_breakdown['Human_Audit'] < 5]['clean_style'].tolist()
+with col_left:
+    st.subheader("🚀 24-Hour Labelling Velocity")
+    st.markdown("Measures active human auditing output over the last day.")
+    if not velocity_df.empty:
+        # Clean up JSON formatting for the UI
+        velocity_df['Art Style'] = velocity_df['Art Style'].str.strip('[]"')
+        st.dataframe(velocity_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No manual labels recorded in the last 24 hours.")
 
-if weak_categories:
-    st.warning(f"**Low Gravity Detected:** The following styles have fewer than 5 Human Anchors. The Vector Tinder engine will struggle to surface candidates until you lock in more examples:\n\n`{', '.join(weak_categories)}`")
-
-if 'Model_Auto' in style_breakdown.columns:
-    massive_categories = style_breakdown[style_breakdown['Model_Auto'] > 2000]['clean_style'].tolist()
-    if massive_categories:
-        st.error(f"**Taxonomy Bottleneck:** The following categories are absorbing a massive amount of cards (`{', '.join(massive_categories)}`). You may need to split these into sub-styles.")
+with col_right:
+    st.subheader("⚖️ ML Training Readiness")
+    st.markdown("Current anchor count per style. (Aiming for ~50 to train the classifier)")
+    if not distribution_df.empty:
+        # Clean up JSON formatting for the UI
+        distribution_df['Art Style'] = distribution_df['Art Style'].str.strip('[]"')
+        st.bar_chart(distribution_df.set_index("Art Style"))
+    else:
+        st.info("No ground truth labels established yet.")
