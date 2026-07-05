@@ -25,84 +25,79 @@ with col1:
 with col2:
     selected_style = None
     if view_mode == "Currently Labeled":
-        # Only allow auditing of your high-confidence core styles
         selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + CORE_STYLES)
 
 # --- 2. BUILD THE QUERY ---
 query_str = """
     SELECT card_id, name, illustrator, image_url, art_style, labeled_by 
     FROM tcg_cards 
-    WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
+    WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
 """
-
 params = {}
 
 if view_mode == "Unlabeled / Needs Review":
-    query_str += " AND (art_style IS NULL OR art_style = :review_label)"
-    params["review_label"] = json.dumps("Manual review needed")
+    # Safely target NULLs and both versions of the manual review flag
+    query_str += " AND (art_style IS NULL OR art_style::text = '\"Manual review needed\"' OR art_style::text = '[\"Manual review needed\"]')"
 else:
-    if selected_style and selected_style != "ALL":
-        query_str += " AND art_style = :style"
-        params["style"] = json.dumps(selected_style)
+    if selected_style != "ALL":
+        # Use pgvector JSON containment operator
+        query_str += " AND art_style @> :style_json"
+        params['style_json'] = json.dumps([selected_style])
     else:
-        style_placeholders = [f":style_{i}" for i in range(len(CORE_STYLES))]
-        query_str += f" AND art_style IN ({', '.join(style_placeholders)})"
-        for i, style in enumerate(CORE_STYLES):
-            params[f"style_{i}"] = json.dumps(style)
-
-query_str += " LIMIT 24;"
+        query_str += " AND art_style IS NOT NULL AND art_style::text != '\"Manual review needed\"' AND art_style::text != '[\"Manual review needed\"]'"
+        
+query_str += " ORDER BY RANDOM() LIMIT 24"
 
 with engine.connect() as conn:
-    result = conn.execute(text(query_str), params).mappings().fetchall()
-    cards = [dict(row) for row in result]
+    cards = conn.execute(text(query_str), params).mappings().fetchall()
 
-# --- 3. RENDER THE GRID ---
-st.divider()
+# --- 3. DISPLAY GRID ---
 if not cards:
-    st.info("No cards found matching this criteria.")
+    st.success("No cards found matching this filter! Great job.")
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
         with cols[i % 4]:
-            with st.container(border=True):
-                st.image(card['image_url'], use_container_width=True)
-                st.caption(f"** | {card['illustrator'] if card['illustrator'] else 'Unknown'}")
-                
-                if card['labeled_by']:
-                    st.caption(f"*Logged by: {card['labeled_by']}*")
-                
-                # Unpack array or string stored in database JSON column
-                current_val = card['art_style']
-                if isinstance(current_val, str):
+            st.image(card['image_url'], use_container_width=True)
+            st.caption(f"**{card['name']}**")
+            
+            # --- ROBUST JSON PARSER ---
+            current_val = CORE_STYLES[0] # Fallback
+            raw_style = card.get('art_style')
+            
+            if raw_style:
+                if isinstance(raw_style, list) and len(raw_style) > 0:
+                    current_val = raw_style[0]
+                elif isinstance(raw_style, str):
                     try:
-                        loaded = json.loads(current_val)
-                        if isinstance(loaded, list) and len(loaded) > 0:
-                            current_val = loaded[0]
-                        elif isinstance(loaded, str):
-                            current_val = loaded
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                        parsed = json.loads(raw_style)
+                        if isinstance(parsed, list) and len(parsed) > 0:
+                            current_val = parsed[0]
+                        elif isinstance(parsed, str):
+                            current_val = parsed
+                    except Exception:
+                        current_val = raw_style
                         
-                idx = CORE_STYLES.index(current_val) if current_val in CORE_STYLES else 0
-                
-                new_style = st.selectbox(
-                    "Assign Style:", 
-                    options=CORE_STYLES, 
-                    index=idx, 
-                    key=f"select_{card['card_id']}_{i}",
-                    label_visibility="collapsed"
-                )
-                
-                if st.button("Lock Anchor", key=f"btn_{card['card_id']}_{i}", type="primary", use_container_width=True):
-                    # Save back to database wrapped as an array to match project spec
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            UPDATE tcg_cards 
-                            SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
-                            WHERE card_id = :id
-                        """), {
-                            "style": json.dumps([new_style]), 
-                            "id": card['card_id']
-                        })
-                    st.toast(f"Locked {card['name']} as {new_style}!")
-                    st.rerun()
+            # Find index safely, default to 0 if style is entirely new
+            idx = CORE_STYLES.index(current_val) if current_val in CORE_STYLES else 0
+            
+            new_style = st.selectbox(
+                "Assign Style:", 
+                options=CORE_STYLES, 
+                index=idx, 
+                key=f"select_{card['card_id']}_{i}",
+                label_visibility="collapsed"
+            )
+            
+            if st.button("Lock Anchor", key=f"btn_{card['card_id']}_{i}", type="primary", use_container_width=True):
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        UPDATE tcg_cards 
+                        SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
+                        WHERE card_id = :id
+                    """), {
+                        "style": json.dumps([new_style]), 
+                        "id": card['card_id']
+                    })
+                st.toast(f"Locked {card['name']} as {new_style}!")
+                st.rerun()

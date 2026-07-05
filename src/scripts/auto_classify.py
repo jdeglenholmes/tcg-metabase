@@ -55,76 +55,80 @@ def fetch_unlabeled_cards(engine):
 
 def main():
     engine = get_engine()
-    cards = fetch_unlabeled_cards(engine)
-    
-    if not cards:
-        print("✅ No outstanding unlabeled cards found matching pipeline conditions.")
-        return
-        
-    print(f"📦 Staging {len(cards)} cards for zero-touch classification...")
+    print("🤖 Loading local CLIP model configurations...")
     model, processor, device = load_clip_model()
     
-    # Pre-tokenize our target automated style labels
+    # Pre-tokenize our target automated style labels once
     labels = [AUTO_STYLES[i] for i in range(len(AUTO_STYLES)) if AUTO_STYLES[i] in CLIP_PROMPTS]
     text_prompts = [CLIP_PROMPTS[label] for label in labels]
     
-    for card in cards:
-        try:
-            # Download card artwork into memory
-            response = requests.get(card['image_url'], timeout=10)
-            img = Image.open(BytesIO(response.content)).convert("RGB")
+    total_processed = 0
+    
+    while True:
+        cards = fetch_unlabeled_cards(engine)
+        
+        if not cards:
+            print(f"✅ Zero-touch classification complete! Total processed this session: {total_processed}")
+            break
             
-            # Process tensors
-            inputs = processor(
-                text=text_prompts, 
-                images=img, 
-                return_tensors="pt", 
-                padding=True
-            ).to(device)
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                # Compute image-to-text softmax classification probabilities
-                logits_per_image = outputs.logits_per_image
-                probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
-            
-            # Find the highest confidence match
-            max_idx = probs.argmax()
-            winning_label = labels[max_idx]
-            confidence = probs[max_idx]
-            
-            # Threshold guard: Ensure the classification is meaningful
-            if confidence > 0.35:
-                print(f"✨ Classified {card['name']} -> {winning_label} ({confidence:.2%})")
+        print(f"📦 Staging next batch of {len(cards)} cards...")
+        
+        for card in cards:
+            try:
+                # Download card artwork into memory
+                response = requests.get(card['image_url'], timeout=10)
+                img = Image.open(BytesIO(response.content)).convert("RGB")
                 
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                        UPDATE tcg_cards
-                        SET art_style = :style,
-                            labeled_by = 'Model_Auto',
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE card_id = :id
-                    """), {
-                        "style": json.dumps([winning_label]),
-                        "id": card['card_id']
-                    })
-            else:
-                # Flag ambiguous matches for the dynamic discovery dashboard
-                print(f"⚠️ Ambiguous composition for {card['name']} (Best: {winning_label} {confidence:.2%}). Routing to Discovery Pool.")
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                        UPDATE tcg_cards
-                        SET art_style = :style,
-                            labeled_by = 'Model_Ambiguous',
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE card_id = :id
-                    """), {
-                        "style": json.dumps("Manual review needed"),
-                        "id": card['card_id']
-                    })
-                    
-        except Exception as e:
-            print(f"❌ Failed processing card {card['name']} ({card['card_id']}): {str(e)}")
+                # Process tensors
+                inputs = processor(
+                    text=text_prompts, 
+                    images=img, 
+                    return_tensors="pt", 
+                    padding=True
+                ).to(device)
+                
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    logits_per_image = outputs.logits_per_image
+                    probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
+                
+                # Find the highest confidence match
+                max_idx = probs.argmax()
+                winning_label = labels[max_idx]
+                confidence = probs[max_idx]
+                
+                # Threshold guard
+                if confidence > 0.35:
+                    print(f"✨ Classified {card['name']} -> {winning_label} ({confidence:.2%})")
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            UPDATE tcg_cards
+                            SET art_style = :style,
+                                labeled_by = 'Model_Auto',
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE card_id = :id
+                        """), {
+                            "style": json.dumps([winning_label]),
+                            "id": card['card_id']
+                        })
+                else:
+                    print(f"⚠️ Ambiguous: {card['name']} (Best: {winning_label} {confidence:.2%}). Routing to Discovery.")
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            UPDATE tcg_cards
+                            SET art_style = :style,
+                                labeled_by = 'Model_Ambiguous',
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE card_id = :id
+                        """), {
+                            "style": json.dumps(["Manual review needed"]),
+                            "id": card['card_id']
+                        })
+                
+                total_processed += 1
+                        
+            except Exception as e:
+                print(f"❌ Failed processing card {card['name']} ({card['card_id']}): {str(e)}")
 
 if __name__ == "__main__":
     main()

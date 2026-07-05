@@ -1,5 +1,6 @@
 # src/ingest/enrichment.py
 import os
+import sys
 import requests
 import torch
 import json
@@ -8,6 +9,12 @@ from PIL import Image
 from io import BytesIO
 from sqlalchemy import text
 import logging
+
+# --- Local directory ---
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+# ----------------------
 
 from src.database.connection import get_engine
 
