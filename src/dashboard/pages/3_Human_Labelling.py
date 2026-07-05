@@ -8,7 +8,7 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from src.dashboard.utils import render_sidebar, get_engine, CORE_STYLES
+from src.dashboard.utils import render_sidebar, get_engine, CORE_STYLES, ART_STYLE_KEYS
 
 st.set_page_config(page_title="Central Auditor", layout="wide")
 render_sidebar()
@@ -25,7 +25,7 @@ with col1:
 with col2:
     selected_style = None
     if view_mode == "Currently Labeled":
-        selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + CORE_STYLES)
+        selected_style = st.selectbox("Filter by specific style to audit:", options=["ALL"] + ART_STYLE_KEYS)
 
 # --- 2. BUILD THE QUERY ---
 query_str = """
