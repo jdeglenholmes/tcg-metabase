@@ -76,11 +76,11 @@ def load_new_batch(mode, style, search, limit):
     except Exception as e:
         st.error(f"Database Fetch Error: {e}")
 
-# --- CALLBACK: PERSISTENT SAVE ---
-def update_card_callback(card_id):
+# --- 1. UPDATE THE CALLBACK ---
+# Add view_mode as an argument
+def update_card_callback(card_id, current_view):
     new_style = st.session_state[f"select_{card_id}"]
     
-    # 1. Safely update the database
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -89,12 +89,16 @@ def update_card_callback(card_id):
                 WHERE card_id = :id
             """), {"style": json.dumps([new_style]), "id": card_id})
             
-        # 2. Update the session state so the card doesn't disappear from the UI
-        for card in st.session_state['card_batch']:
-            if card['card_id'] == card_id:
-                card['art_style'] = json.dumps([new_style])
-                break
-                
+        # The UX Fix: If you are clearing the backlog, remove the card from the screen instantly
+        if current_view == "Unlabeled / Needs Review":
+            st.session_state['card_batch'] = [c for c in st.session_state['card_batch'] if c['card_id'] != card_id]
+        else:
+            # If you are just browsing already-labeled cards, just update the visual
+            for card in st.session_state['card_batch']:
+                if card['card_id'] == card_id:
+                    card['art_style'] = json.dumps([new_style])
+                    break
+                    
         st.toast(f"✅ Saved {new_style}!")
     except Exception as e:
         st.error(f"Database Save Error: {e}")
@@ -135,15 +139,18 @@ else:
 
                 current_val = parse_art_style(card['art_style'])
                 
+                # select box
                 st.selectbox(
                     "Assign Style:", 
                     options=ART_STYLE_KEYS, 
                     index=ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0,
                     key=f"select_{card['card_id']}",
                     on_change=update_card_callback,
-                    args=(card['card_id'],),
+                    
+                    args=(card['card_id'], view_mode), 
                     label_visibility="collapsed"
-                )
+                    )
+
                 
                 # Gemini Advisor
                 if st.button("🤖 Ask Gemini", key=f"gemini_{card['card_id']}", use_container_width=True):
