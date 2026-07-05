@@ -51,10 +51,16 @@ def load_new_batch(mode, style, search, limit):
     params = {}
     
     if mode == "Unlabeled / Needs Review":
-        base_query += " AND (art_style IS NULL OR art_style::text IN ('\"Manual review needed\"', '[\"Manual review needed\"]'))"
-    elif mode == "Currently Labeled" and style and style != "ALL":
-        base_query += " AND art_style @> :style"
-        params["style"] = json.dumps([style])
+        # Strict standard: If a human hasn't audited it, it needs review.
+        base_query += """
+            AND (labeled_by IS NULL OR labeled_by != 'Human_Audit')
+        """
+    elif mode == "Currently Labeled":
+        # Strict standard: Only show verified ground truth
+        base_query += " AND labeled_by = 'Human_Audit'"
+        if style and style != "ALL":
+            base_query += " AND art_style @> :style"
+            params["style"] = json.dumps([style])
     elif mode == "Find Specific Card" and search:
         base_query += " AND (name ILIKE :s OR card_id ILIKE :s)"
         params["s"] = f"%{search}%"
