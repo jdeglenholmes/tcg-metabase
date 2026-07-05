@@ -5,7 +5,7 @@ import json
 from sqlalchemy import text
 import os
 
-from src.database.connection import get_engine
+from src.database.connection import get_engine as get_base_engine
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
@@ -64,3 +64,12 @@ def render_sidebar():
         st.page_link("pages/3_Human_Labelling.py", label="Human Labelling", icon="🕵️")
         st.page_link("pages/4_Vector_Tinder.py", label="Vector Tinder", icon="🎯")
         st.page_link("pages/5_Model_Metrics.py", label="Model Metrics", icon="📊")
+
+# Wrap the base engine in the Streamlit cache
+@st.cache_resource
+def get_engine():
+    """
+    Streamlit-specific singleton wrapper for the database engine.
+    Prevents Streamlit UI refreshes from exhausting the connection pool.
+    """
+    return get_base_engine()
