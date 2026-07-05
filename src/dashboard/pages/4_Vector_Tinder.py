@@ -52,7 +52,13 @@ if st.button(f"🔍 Find visually similar cards for '{target_style}'", type="pri
             st.error(f"❌ No ground truth exists for `{target_style}` yet. Please manually assign this style to at least one card in the Central Auditor before searching.")
         else:
             seed_vector = seed_result[0]
-            
+
+            if isinstance(seed_vector, str):
+                seed_vector = json.loads(seed_vector)
+                
+            # Format the vector array for pgvector
+            formatted_vector = f"[{','.join(map(str, seed_vector))}]"
+
             # Step 2: Perform the nearest-neighbor search against unlabeled/ambiguous cards
             search_query = text("""
                 SELECT card_id, name, illustrator, rarity, market_price, image_url 
@@ -64,8 +70,7 @@ if st.button(f"🔍 Find visually similar cards for '{target_style}'", type="pri
                 LIMIT 24
             """)
             
-            # Format the vector array for pgvector
-            formatted_vector = f"[{','.join(map(str, seed_vector))}]"
+            
             try:
                 candidates = conn.execute(search_query, {"seed_vec": formatted_vector}).mappings().fetchall()
             except Exception as e:
