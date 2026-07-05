@@ -66,8 +66,12 @@ if st.button(f"🔍 Find visually similar cards for '{target_style}'", type="pri
             
             # Format the vector array for pgvector
             formatted_vector = f"[{','.join(map(str, seed_vector))}]"
-            candidates = conn.execute(search_query, {"seed_vec": formatted_vector}).mappings().fetchall()
-            
+            try:
+                candidates = conn.execute(search_query, {"seed_vec": formatted_vector}).mappings().fetchall()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                # This will print the actual PostgreSQL error, like "operator does not exist..."
+                st.stop()
             # Store results in session state so they survive button clicks
             st.session_state['tinder_candidates'] = candidates
             st.session_state['tinder_target'] = target_style
