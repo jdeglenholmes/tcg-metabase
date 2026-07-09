@@ -19,6 +19,102 @@ st.markdown("Resolve missing or 'Unknown' database attributes to maintain high-f
 
 engine = get_engine()
 
+# ==========================================
+# 1. CAMEO SWEEP STATE & FUNCTIONS
+# ==========================================
+if 'cameo_sweep_batch' not in st.session_state:
+    st.session_state['cameo_sweep_batch'] = []
+
+def fetch_cameo_sweep_batch(engine, limit=12):
+    """Fetches cards that have a detected cameo frequency but no named pokemon."""
+    query = text("""
+        SELECT card_id, name, image_url, cameo_frequency, art_style
+        FROM tcg_cards
+        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
+          AND image_url IS NOT NULL
+          AND cameo_frequency > 0 
+          AND (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null')
+        ORDER BY RANDOM()
+        LIMIT :limit
+    """)
+    try:
+        with engine.connect() as conn:
+            results = conn.execute(query, {"limit": limit}).mappings().fetchall()
+            st.session_state['cameo_sweep_batch'] = [dict(c) for c in results]
+    except Exception as e:
+        st.error(f"Database Fetch Error: {e}")
+
+def save_cameo_tags(engine, card_id):
+    """Saves the comma-separated string as a JSON array."""
+    cameo_str = st.session_state[f"sweep_cameo_{card_id}"]
+    new_cameos_list = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
+    
+    if not new_cameos_list:
+        st.warning("Please enter at least one Pokémon name, or set frequency to 0 in the Auditor.")
+        return
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE tcg_cards 
+                SET cameo_pokemon = :cameo_names,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE card_id = :id
+            """), {
+                "cameo_names": json.dumps(new_cameos_list),
+                "id": card_id
+            })
+            
+        # UI Cleanup: Instantly remove the card from the screen
+        st.session_state['cameo_sweep_batch'] = [
+            c for c in st.session_state['cameo_sweep_batch'] if c['card_id'] != card_id
+        ]
+        st.toast(f"✅ Saved cameos for {card_id}!")
+    except Exception as e:
+        st.error(f"Database Save Error: {e}")
+
+def render_cameo_sweep_station(engine):
+    st.divider()
+    st.subheader("🕵️ Cameo Identification Sweep")
+    st.markdown("These cards were flagged by the AI as having background entities, but lack human-verified names.")
+
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🔄 Fetch Cameo Queue", type="primary"):
+            fetch_cameo_sweep_batch(engine, 12)
+            
+    cards = st.session_state.get('cameo_sweep_batch', [])
+    
+    if not cards:
+        st.info("Queue is empty. Click Fetch to find missing cameo data.")
+        return
+
+    cols = st.columns(4)
+    for i, card in enumerate(cards):
+        c_id = card['card_id']
+        with cols[i % 4]:
+            with st.container(border=True):
+                st.image(card['image_url'], use_container_width=True)
+                st.markdown(f"")
+                
+                # Show the AI's hint
+                st.caption(f"🤖 AI Detected:  entities**")
+                
+                # Text Input for the names
+                st.text_input(
+                    "Cameo Pokémon:", 
+                    placeholder="e.g. Pikachu, Eevee", 
+                    key=f"sweep_cameo_{c_id}"
+                )
+                
+                # Save button
+                if st.button("💾 Lock Cameos", key=f"sweep_save_{c_id}", use_container_width=True):
+                    save_cameo_tags(engine, c_id)
+                    st.rerun()
+
+# ==========================================
+# 2. VISUALIZATION COMPONENT
+# ==========================================
 def render_missing_data_visualizations():
     engine = get_engine()
     
@@ -67,7 +163,10 @@ def render_missing_data_visualizations():
         else:
             st.info("Not enough audited data to generate genre breakdown.")
 
-# --- TARGET SELECTOR ---
+
+# ==========================================
+# 3. LEGACY TARGET SELECTOR (Standard Healing)
+# ==========================================
 missing_target = st.selectbox(
     "Select Missing Data Category to Resolve:",
     [
@@ -188,5 +287,12 @@ else:
                                     WHERE card_id = :id
                                 """), {"supertype": new_supertype, "id": card['card_id']})
                     st.rerun()
-                    
+
+# ==========================================
+# 4. RENDER NEW STATIONS & VISUALS
+# ==========================================
+# Render the new JSON-based Cameo Identification Queue
+render_cameo_sweep_station(engine)
+
+# Render the overarching visual charts
 render_missing_data_visualizations()
