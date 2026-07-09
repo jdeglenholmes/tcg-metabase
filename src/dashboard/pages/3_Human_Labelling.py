@@ -14,24 +14,23 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-# Ensure AESTHETIC_KEYS is added to your utils.py!
 from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS, AESTHETIC_KEYS
 
 class AppraisalResult(BaseModel):
     style: str = Field(description="The exact name of the selected art style category.")
+    aesthetic: str = Field(description="The exact name of the selected card aesthetic category.")
     reason: str = Field(description="A brief, 1-sentence justification.")
 
 st.set_page_config(page_title="Central Auditor", layout="wide")
 render_sidebar()
 
-st.title("⚖️ Central Auditor (Active Learning)")
-st.markdown("Edit metadata, apply styles and aesthetics, and lock in human anchors.")
+st.title("⚖️ Central Auditor")
+st.markdown("Edit metadata, log cameo appearances, and lock in human anchors.")
 
 engine = get_engine()
 
 # --- OPTIMIZED HELPERS ---
 def parse_json_array(raw_val):
-    """Safely extracts a full JSON array for multiselect widgets."""
     if not raw_val: return []
     try:
         parsed = json.loads(raw_val)
@@ -40,30 +39,29 @@ def parse_json_array(raw_val):
         return [str(raw_val).strip('[]"\' ')]
     
 def parse_json_column(raw_val, fallback):
-    """Safely extracts the first item from a JSON array column."""
     if not raw_val: return fallback
     try:
         parsed = json.loads(raw_val)
         return parsed[0] if isinstance(parsed, list) and len(parsed) > 0 else parsed
     except: 
-        # Clean up any trailing spaces or quotes that might break the dropdown index
         return str(raw_val).strip('[]"\' ')
 
 # --- STATE MANAGEMENT ---
 if 'card_batch' not in st.session_state:
     st.session_state['card_batch'] = []
 
-# --- DATA FETCHING ---
-def load_new_batch(mode, style, search, limit):
-    # Added is_trainer, is_cameo, and card_aesthetics to the fetch
+# --- DATA FETCHING (DYNAMIC SQL BUILDER) ---
+def load_new_batch(mode, style, search, limit, filters):
+    # Updated to fetch the two new cameo columns
     base_query = """
         SELECT card_id, name, illustrator, rarity, market_price, image_url, 
-               art_style, card_aesthetic, has_trainer, cameos
+               art_style, card_aesthetic, has_trainer, cameo_frequency, cameo_pokemon
         FROM tcg_cards 
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
     """
     params = {}
     
+    # 1. Base Routing
     if mode == "Unlabeled / Needs Review":
         base_query += " AND (labeled_by IS NULL OR labeled_by != 'Human_Audit')"
     elif mode == "Currently Labeled":
@@ -71,9 +69,19 @@ def load_new_batch(mode, style, search, limit):
         if style and style != "ALL":
             base_query += " AND art_style @> :style"
             params["style"] = json.dumps([style])
-    elif mode == "Find Specific Card" and search:
+            
+    # 2. Advanced Search & Ribbon Filters (Modular AND clauses)
+    if search:
         base_query += " AND (name ILIKE :s OR card_id ILIKE :s)"
         params["s"] = f"%{search}%"
+        
+    if filters.get("has_cameo"):
+        # Now targets the numeric frequency column directly
+        base_query += " AND cameo_frequency > 0"
+    if filters.get("has_trainer"):
+        base_query += " AND has_trainer = TRUE"
+    if filters.get("missing_illustrator"):
+        base_query += " AND (illustrator IS NULL OR illustrator = '')"
         
     base_query += " ORDER BY RANDOM() LIMIT :limit"
     params["limit"] = limit
@@ -87,14 +95,17 @@ def load_new_batch(mode, style, search, limit):
 
 # --- CALLBACK: SAVE ALL DATA ---
 def save_card_data(card_id, current_view):
-    # Retrieve all the inputs from session state using their specific keys
     new_style = st.session_state[f"style_{card_id}"]
     new_aesthetics_list = st.session_state[f"aesthetic_{card_id}"]
     new_illustrator = st.session_state[f"ill_{card_id}"]
     new_rarity = st.session_state[f"rar_{card_id}"]
     new_price = st.session_state[f"price_{card_id}"]
     new_trainer = st.session_state[f"trainer_{card_id}"]
-    new_cameo = st.session_state[f"cameo_{card_id}"]
+    
+    # Handle the two new cameo fields
+    new_cameo_freq = st.session_state[f"cameo_freq_{card_id}"]
+    cameo_str = st.session_state[f"cameo_names_{card_id}"]
+    new_cameo_names = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
     
     try:
         with engine.begin() as conn:
@@ -106,22 +117,23 @@ def save_card_data(card_id, current_view):
                     rarity = :rarity,
                     market_price = :price,
                     has_trainer = :trainer,
-                    cameos = :cameo,
+                    cameo_frequency = :cameo_freq,
+                    cameo_pokemon = :cameo_names,
                     labeled_by = 'Human_Audit', 
                     updated_at = CURRENT_TIMESTAMP
                 WHERE card_id = :id
             """), {
                 "style": json.dumps([new_style]),
-                "aesthetic": json.dumps(new_aesthetics_list) if new_aesthetics_list and new_aesthetics_list != "None" else None,
+                "aesthetic": json.dumps(new_aesthetics_list) if new_aesthetics_list else None,
                 "illustrator": new_illustrator if new_illustrator else None,
                 "rarity": new_rarity if new_rarity else None,
                 "price": new_price if new_price > 0 else None,
                 "trainer": new_trainer,
-                "cameo": new_cameo,
+                "cameo_freq": new_cameo_freq,
+                "cameo_names": json.dumps(new_cameo_names) if new_cameo_names else None,
                 "id": card_id
             })
             
-        # UI Cleanup
         if current_view == "Unlabeled / Needs Review":
             st.session_state['card_batch'] = [c for c in st.session_state['card_batch'] if c['card_id'] != card_id]
         else:
@@ -133,26 +145,43 @@ def save_card_data(card_id, current_view):
                     card['rarity'] = new_rarity
                     card['market_price'] = new_price
                     card['has_trainer'] = new_trainer
-                    card['cameos'] = new_cameo
+                    card['cameo_frequency'] = new_cameo_freq
+                    card['cameo_pokemon'] = json.dumps(new_cameo_names) if new_cameo_names else None
                     break
                     
         st.toast(f"✅ Master record saved for {card_id}!")
     except Exception as e:
         st.error(f"Database Save Error: {e}")
 
-# --- UI CONTROLS ---
-col1, col2, col3, col4 = st.columns([2, 2, 1, 1.5])
+# --- UI CONTROLS & FILTER RIBBON ---
+col1, col2, col3, col4 = st.columns([2, 3, 1, 1.5])
+
 with col1:
-    view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled", "Find Specific Card"])
-with col2:
+    view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled", "Search / Filter"])
     style_filter = st.selectbox("Style:", ["ALL"] + ART_STYLE_KEYS) if view_mode == "Currently Labeled" else None
-    search_input = st.text_input("Search:") if view_mode == "Find Specific Card" else None
+
+with col2:
+    search_input = st.text_input("🔍 Search Name or ID:")
+    
+    st.markdown("**🏷️ Modular Filter Ribbon**")
+    f_col1, f_col2, f_col3 = st.columns(3)
+    with f_col1: filter_cameo = st.toggle("Has Cameo Data")
+    with f_col2: filter_trainer = st.toggle("Is Trainer Card")
+    with f_col3: filter_missing_ill = st.toggle("Missing Illustrator")
+    
+    active_filters = {
+        "has_cameo": filter_cameo,
+        "has_trainer": filter_trainer,
+        "missing_illustrator": filter_missing_ill
+    }
+
 with col3:
     display_limit = st.number_input("Limit:", 4, 100, 24, 4)
+
 with col4:
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
     if st.button("🔄 Fetch New Batch", type="primary", use_container_width=True):
-        load_new_batch(view_mode, style_filter, search_input, display_limit)
+        load_new_batch(view_mode, style_filter, search_input, display_limit, active_filters)
 
 # --- RENDER GRID ---
 st.divider()
@@ -160,7 +189,7 @@ st.divider()
 cards = st.session_state.get('card_batch', [])
 
 if not cards:
-    st.info("No cards currently loaded. Click 'Fetch New Batch' to begin auditing.")
+    st.info("No cards currently loaded. Adjust filters and click 'Fetch New Batch'.")
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
@@ -177,16 +206,25 @@ else:
                     current_price = card.get('market_price')
                     st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
                     
-                    # Boolean flags for Cameos and Trainers
                     st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
-                    st.checkbox("Is Cameo?", value=bool(card.get('cameos')), key=f"cameo_{c_id}")
                     
-                    # Display the current recorded style as text for reference
+                    st.divider()
+                    st.markdown("**Entity Tracking**")
+                    # Display the AI's detected count, allowing you to manually correct it
+                    st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"cameo_freq_{c_id}")
+                    
+                    # JSON Cameo string field
+                    current_cameos = parse_json_array(card.get('cameo_pokemon'))
+                    # Filter out None values that might have sneaked through JSON parsing
+                    current_cameos = [c for c in current_cameos if c is not None]
+                    cameo_str_val = ", ".join(current_cameos) if current_cameos else ""
+                    st.text_input("Cameo Pokémon (comma-separated):", value=cameo_str_val, key=f"cameo_names_{c_id}", placeholder="e.g. Pikachu, Eevee")
+                    
+                    st.divider()
                     current_style_val = parse_json_column(card.get('art_style'), "None")
                     st.info(f"Currently saved style: **{current_style_val}**")
 
                 # --- CLASSIFICATION DROPDOWNS ---
-                # Art Style
                 idx_style = ART_STYLE_KEYS.index(current_style_val) if current_style_val in ART_STYLE_KEYS else 0
                 st.selectbox(
                     "Art Style:", 
@@ -195,23 +233,20 @@ else:
                     key=f"style_{c_id}"
                 )
                 
-                # Card Aesthetics (Upgraded to Multiselect)
                 current_aes_list = parse_json_array(card.get('card_aesthetic'))
-                
-                # Ensure the current values actually exist in your options list to prevent errors
                 valid_defaults = [aes for aes in current_aes_list if aes in AESTHETIC_KEYS]
                 
                 st.multiselect(
                     "Card Aesthetics:", 
                     options=AESTHETIC_KEYS, 
-                    default=valid_defaults, # Multiselect uses 'default' instead of 'index'
+                    default=valid_defaults,
                     key=f"aesthetic_{c_id}"
                 )
                 
                 # --- MASTER SAVE BUTTON ---
                 if st.button("💾 Save Data", key=f"save_{c_id}", type="primary", use_container_width=True):
                     save_card_data(c_id, view_mode)
-                    st.rerun() # Force a quick rerun to clear the visual if needed
+                    st.rerun() 
                 
                 # --- GEMINI ADVISOR ---
                 if st.button("🤖 Ask Gemini", key=f"gemini_{c_id}", use_container_width=True):
@@ -220,12 +255,12 @@ else:
                             client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
                             img = Image.open(BytesIO(requests.get(card['image_url']).content))
                             resp = client.models.generate_content(
-                                model='gemini-3.1-flash',
+                                model='gemini-2.5-flash',
                                 contents=[f"Classify this into ONE style: {ART_STYLE_KEYS} and ONE aesthetic: {AESTHETIC_KEYS}", img],
                                 config={"temperature": 0.0, "response_mime_type": "application/json", "response_schema": AppraisalResult}
                             )
                             ai = AppraisalResult.model_validate_json(resp.text)
-                            st.success(f"**Style:** {ai.style}")
+                            st.success(f"**Style:** {ai.style} | **Aesthetic:** {ai.aesthetic}")
                             st.caption(ai.reason)
                         except Exception as e:
                             st.error(f"API Error: {e}")
