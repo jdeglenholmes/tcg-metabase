@@ -50,8 +50,7 @@ ART_STYLE_KEYS = CORE_STYLES + AUTO_STYLES + SUGGESTED_REMAINING_STYLES
 AESTHETIC_KEYS = [
     "kinetic", "chaotic", "modern", "whimsical", "legendary", "neutral",
     "minimalist", "maximalist", "cinematic", "surrealist", "traditional_hand_painted",
-    "eerie_gothic", "cottagecore", "lush_botanical", "neon_cyberpunk", "high_stakes_showdown",
-    "has_cameo", "is_trainer_gallery"
+    "eerie_gothic", "cottagecore", "lush_botanical", "neon_cyberpunk", "high_stakes_showdown"
 ]
 
 # --- UI COMPONENTS ---
