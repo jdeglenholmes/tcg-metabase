@@ -58,7 +58,7 @@ def load_new_batch(mode, style, search, limit):
     # Added is_trainer, is_cameo, and card_aesthetics to the fetch
     base_query = """
         SELECT card_id, name, illustrator, rarity, market_price, image_url, 
-               art_style, card_aesthetics, is_trainer, is_cameo 
+               art_style, card_aesthetic, is_trainer, is_cameo 
         FROM tcg_cards 
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
     """
@@ -101,7 +101,7 @@ def save_card_data(card_id, current_view):
             conn.execute(text("""
                 UPDATE tcg_cards 
                 SET art_style = :style, 
-                    card_aesthetics = :aesthetic,
+                    card_aesthetic = :aesthetic,
                     illustrator = :illustrator,
                     rarity = :rarity,
                     market_price = :price,
@@ -128,7 +128,7 @@ def save_card_data(card_id, current_view):
             for card in st.session_state['card_batch']:
                 if card['card_id'] == card_id:
                     card['art_style'] = json.dumps([new_style])
-                    card['card_aesthetics'] = json.dumps([new_aesthetics_list])
+                    card['card_aesthetic'] = json.dumps([new_aesthetics_list])
                     card['illustrator'] = new_illustrator
                     card['rarity'] = new_rarity
                     card['market_price'] = new_price
@@ -196,7 +196,7 @@ else:
                 )
                 
                 # Card Aesthetics (Upgraded to Multiselect)
-                current_aes_list = parse_json_array(card.get('card_aesthetics'))
+                current_aes_list = parse_json_array(card.get('card_aesthetic'))
                 
                 # Ensure the current values actually exist in your options list to prevent errors
                 valid_defaults = [aes for aes in current_aes_list if aes in AESTHETIC_KEYS]
