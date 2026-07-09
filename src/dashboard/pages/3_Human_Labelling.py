@@ -58,7 +58,7 @@ def load_new_batch(mode, style, search, limit):
     # Added is_trainer, is_cameo, and card_aesthetics to the fetch
     base_query = """
         SELECT card_id, name, illustrator, rarity, market_price, image_url, 
-               art_style, card_aesthetic, is_trainer, is_cameo 
+               art_style, card_aesthetic, has_trainer, cameos
         FROM tcg_cards 
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
     """
@@ -105,14 +105,14 @@ def save_card_data(card_id, current_view):
                     illustrator = :illustrator,
                     rarity = :rarity,
                     market_price = :price,
-                    is_trainer = :trainer,
-                    is_cameo = :cameo,
+                    has_trainer = :trainer,
+                    cameos = :cameo,
                     labeled_by = 'Human_Audit', 
                     updated_at = CURRENT_TIMESTAMP
                 WHERE card_id = :id
             """), {
                 "style": json.dumps([new_style]),
-                "aesthetic": json.dumps([new_aesthetics_list]) if new_aesthetics_list and new_aesthetics_list != "None" else None,
+                "aesthetic": json.dumps(new_aesthetics_list) if new_aesthetics_list and new_aesthetics_list != "None" else None,
                 "illustrator": new_illustrator if new_illustrator else None,
                 "rarity": new_rarity if new_rarity else None,
                 "price": new_price if new_price > 0 else None,
@@ -128,12 +128,12 @@ def save_card_data(card_id, current_view):
             for card in st.session_state['card_batch']:
                 if card['card_id'] == card_id:
                     card['art_style'] = json.dumps([new_style])
-                    card['card_aesthetic'] = json.dumps([new_aesthetics_list])
+                    card['card_aesthetic'] = json.dumps(new_aesthetics_list)
                     card['illustrator'] = new_illustrator
                     card['rarity'] = new_rarity
                     card['market_price'] = new_price
-                    card['is_trainer'] = new_trainer
-                    card['is_cameo'] = new_cameo
+                    card['has_trainer'] = new_trainer
+                    card['cameos'] = new_cameo
                     break
                     
         st.toast(f"✅ Master record saved for {card_id}!")
@@ -178,8 +178,8 @@ else:
                     st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
                     
                     # Boolean flags for Cameos and Trainers
-                    st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
-                    st.checkbox("Is Cameo?", value=bool(card.get('is_cameo')), key=f"cameo_{c_id}")
+                    st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
+                    st.checkbox("Is Cameo?", value=bool(card.get('cameos')), key=f"cameo_{c_id}")
                     
                     # Display the current recorded style as text for reference
                     current_style_val = parse_json_column(card.get('art_style'), "None")
@@ -220,7 +220,7 @@ else:
                             client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
                             img = Image.open(BytesIO(requests.get(card['image_url']).content))
                             resp = client.models.generate_content(
-                                model='gemini-2.5-flash',
+                                model='gemini-3.1-flash',
                                 contents=[f"Classify this into ONE style: {ART_STYLE_KEYS} and ONE aesthetic: {AESTHETIC_KEYS}", img],
                                 config={"temperature": 0.0, "response_mime_type": "application/json", "response_schema": AppraisalResult}
                             )
