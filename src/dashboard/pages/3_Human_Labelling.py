@@ -14,7 +14,8 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS
+# Ensure AESTHETIC_KEYS is added to your utils.py!
+from src.dashboard.utils import render_sidebar, get_engine, ART_STYLE_KEYS, AESTHETIC_KEYS
 
 class AppraisalResult(BaseModel):
     style: str = Field(description="The exact name of the selected art style category.")
@@ -24,39 +25,48 @@ st.set_page_config(page_title="Central Auditor", layout="wide")
 render_sidebar()
 
 st.title("⚖️ Central Auditor (Active Learning)")
-st.markdown("Lock in human anchors or use Gemini AI for a second opinion.")
+st.markdown("Edit metadata, apply styles and aesthetics, and lock in human anchors.")
 
 engine = get_engine()
 
 # --- OPTIMIZED HELPERS ---
-def parse_art_style(raw_style):
-    if not raw_style: return ART_STYLE_KEYS[0]
+def parse_json_array(raw_val):
+    """Safely extracts a full JSON array for multiselect widgets."""
+    if not raw_val: return []
     try:
-        parsed = json.loads(raw_style)
-        return parsed[0] if isinstance(parsed, list) else parsed
-    except: return raw_style
+        parsed = json.loads(raw_val)
+        return parsed if isinstance(parsed, list) else [parsed]
+    except:
+        return [str(raw_val).strip('[]"\' ')]
+    
+def parse_json_column(raw_val, fallback):
+    """Safely extracts the first item from a JSON array column."""
+    if not raw_val: return fallback
+    try:
+        parsed = json.loads(raw_val)
+        return parsed[0] if isinstance(parsed, list) and len(parsed) > 0 else parsed
+    except: 
+        # Clean up any trailing spaces or quotes that might break the dropdown index
+        return str(raw_val).strip('[]"\' ')
 
 # --- STATE MANAGEMENT ---
-# Store the cards in session state so they survive page refreshes
 if 'card_batch' not in st.session_state:
     st.session_state['card_batch'] = []
 
-# --- DATA FETCHING (ON DEMAND) ---
+# --- DATA FETCHING ---
 def load_new_batch(mode, style, search, limit):
+    # Added is_trainer, is_cameo, and card_aesthetics to the fetch
     base_query = """
-        SELECT card_id, name, illustrator, rarity, market_price, image_url, art_style 
+        SELECT card_id, name, illustrator, rarity, market_price, image_url, 
+               art_style, card_aesthetics, is_trainer, is_cameo 
         FROM tcg_cards 
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
     """
     params = {}
     
     if mode == "Unlabeled / Needs Review":
-        # Strict standard: If a human hasn't audited it, it needs review.
-        base_query += """
-            AND (labeled_by IS NULL OR labeled_by != 'Human_Audit')
-        """
+        base_query += " AND (labeled_by IS NULL OR labeled_by != 'Human_Audit')"
     elif mode == "Currently Labeled":
-        # Strict standard: Only show verified ground truth
         base_query += " AND labeled_by = 'Human_Audit'"
         if style and style != "ALL":
             base_query += " AND art_style @> :style"
@@ -71,35 +81,62 @@ def load_new_batch(mode, style, search, limit):
     try:
         with engine.connect() as conn:
             results = conn.execute(text(base_query), params).mappings().fetchall()
-            # Convert to standard dicts and store in session state
             st.session_state['card_batch'] = [dict(c) for c in results]
     except Exception as e:
         st.error(f"Database Fetch Error: {e}")
 
-# --- 1. UPDATE THE CALLBACK ---
-# Add view_mode as an argument
-def update_card_callback(card_id, current_view):
-    new_style = st.session_state[f"select_{card_id}"]
+# --- CALLBACK: SAVE ALL DATA ---
+def save_card_data(card_id, current_view):
+    # Retrieve all the inputs from session state using their specific keys
+    new_style = st.session_state[f"style_{card_id}"]
+    new_aesthetics_list = st.session_state[f"aesthetic_{card_id}"]
+    new_illustrator = st.session_state[f"ill_{card_id}"]
+    new_rarity = st.session_state[f"rar_{card_id}"]
+    new_price = st.session_state[f"price_{card_id}"]
+    new_trainer = st.session_state[f"trainer_{card_id}"]
+    new_cameo = st.session_state[f"cameo_{card_id}"]
     
     try:
         with engine.begin() as conn:
             conn.execute(text("""
                 UPDATE tcg_cards 
-                SET art_style = :style, labeled_by = 'Human_Audit', updated_at = CURRENT_TIMESTAMP
+                SET art_style = :style, 
+                    card_aesthetics = :aesthetic,
+                    illustrator = :illustrator,
+                    rarity = :rarity,
+                    market_price = :price,
+                    is_trainer = :trainer,
+                    is_cameo = :cameo,
+                    labeled_by = 'Human_Audit', 
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE card_id = :id
-            """), {"style": json.dumps([new_style]), "id": card_id})
+            """), {
+                "style": json.dumps([new_style]),
+                "aesthetic": json.dumps([new_aesthetics_list]) if new_aesthetics_list and new_aesthetics_list != "None" else None,
+                "illustrator": new_illustrator if new_illustrator else None,
+                "rarity": new_rarity if new_rarity else None,
+                "price": new_price if new_price > 0 else None,
+                "trainer": new_trainer,
+                "cameo": new_cameo,
+                "id": card_id
+            })
             
-        # The UX Fix: If you are clearing the backlog, remove the card from the screen instantly
+        # UI Cleanup
         if current_view == "Unlabeled / Needs Review":
             st.session_state['card_batch'] = [c for c in st.session_state['card_batch'] if c['card_id'] != card_id]
         else:
-            # If you are just browsing already-labeled cards, just update the visual
             for card in st.session_state['card_batch']:
                 if card['card_id'] == card_id:
                     card['art_style'] = json.dumps([new_style])
+                    card['card_aesthetics'] = json.dumps([new_aesthetics_list])
+                    card['illustrator'] = new_illustrator
+                    card['rarity'] = new_rarity
+                    card['market_price'] = new_price
+                    card['is_trainer'] = new_trainer
+                    card['is_cameo'] = new_cameo
                     break
                     
-        st.toast(f"✅ Saved {new_style}!")
+        st.toast(f"✅ Master record saved for {card_id}!")
     except Exception as e:
         st.error(f"Database Save Error: {e}")
 
@@ -113,8 +150,7 @@ with col2:
 with col3:
     display_limit = st.number_input("Limit:", 4, 100, 24, 4)
 with col4:
-    # Explicit user control to fetch new cards
-    st.markdown("<br>", unsafe_allow_html=True) # Alignment fix
+    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Fetch New Batch", type="primary", use_container_width=True):
         load_new_batch(view_mode, style_filter, search_input, display_limit)
 
@@ -128,43 +164,68 @@ if not cards:
 else:
     cols = st.columns(4)
     for i, card in enumerate(cards):
+        c_id = card['card_id']
         with cols[i % 4]:
             with st.container(border=True):
                 st.image(card['image_url'], use_container_width=True)
                 
-                with st.expander(f"📖 {card['name']}"):
-                    st.markdown(f"**Artist:** {card.get('illustrator') or '⚠️'}")
-                    st.markdown(f"**Rarity:** {card.get('rarity') or '⚠️'}")
-                    st.markdown(f"**Price:** ${card.get('market_price') or 0:.2f}")
-
-                current_val = parse_art_style(card['art_style'])
-                
-                # select box
-                st.selectbox(
-                    "Assign Style:", 
-                    options=ART_STYLE_KEYS, 
-                    index=ART_STYLE_KEYS.index(current_val) if current_val in ART_STYLE_KEYS else 0,
-                    key=f"select_{card['card_id']}",
-                    on_change=update_card_callback,
+                # --- EDITABLE METADATA EXPANDER ---
+                with st.expander(f"📖 {card['name']} (Edit Data)"):
+                    st.text_input("Illustrator:", value=card.get('illustrator') or "", key=f"ill_{c_id}")
+                    st.text_input("Rarity:", value=card.get('rarity') or "", key=f"rar_{c_id}")
                     
-                    args=(card['card_id'], view_mode), 
-                    label_visibility="collapsed"
-                    )
+                    current_price = card.get('market_price')
+                    st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
+                    
+                    # Boolean flags for Cameos and Trainers
+                    st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
+                    st.checkbox("Is Cameo?", value=bool(card.get('is_cameo')), key=f"cameo_{c_id}")
+                    
+                    # Display the current recorded style as text for reference
+                    current_style_val = parse_json_column(card.get('art_style'), "None")
+                    st.info(f"Currently saved style: **{current_style_val}**")
 
+                # --- CLASSIFICATION DROPDOWNS ---
+                # Art Style
+                idx_style = ART_STYLE_KEYS.index(current_style_val) if current_style_val in ART_STYLE_KEYS else 0
+                st.selectbox(
+                    "Art Style:", 
+                    options=ART_STYLE_KEYS, 
+                    index=idx_style,
+                    key=f"style_{c_id}"
+                )
                 
-                # Gemini Advisor
-                if st.button("🤖 Ask Gemini", key=f"gemini_{card['card_id']}", use_container_width=True):
+                # Card Aesthetics (Upgraded to Multiselect)
+                current_aes_list = parse_json_array(card.get('card_aesthetics'))
+                
+                # Ensure the current values actually exist in your options list to prevent errors
+                valid_defaults = [aes for aes in current_aes_list if aes in AESTHETIC_KEYS]
+                
+                st.multiselect(
+                    "Card Aesthetics:", 
+                    options=AESTHETIC_KEYS, 
+                    default=valid_defaults, # Multiselect uses 'default' instead of 'index'
+                    key=f"aesthetic_{c_id}"
+                )
+                
+                # --- MASTER SAVE BUTTON ---
+                if st.button("💾 Save Data", key=f"save_{c_id}", type="primary", use_container_width=True):
+                    save_card_data(c_id, view_mode)
+                    st.rerun() # Force a quick rerun to clear the visual if needed
+                
+                # --- GEMINI ADVISOR ---
+                if st.button("🤖 Ask Gemini", key=f"gemini_{c_id}", use_container_width=True):
                     with st.spinner("Analyzing..."):
                         try:
                             client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
                             img = Image.open(BytesIO(requests.get(card['image_url']).content))
                             resp = client.models.generate_content(
                                 model='gemini-2.5-flash',
-                                contents=[f"Classify this into one of: {ART_STYLE_KEYS}", img],
+                                contents=[f"Classify this into ONE style: {ART_STYLE_KEYS} and ONE aesthetic: {AESTHETIC_KEYS}", img],
                                 config={"temperature": 0.0, "response_mime_type": "application/json", "response_schema": AppraisalResult}
                             )
                             ai = AppraisalResult.model_validate_json(resp.text)
-                            st.success(f"**{ai.style}**")
+                            st.success(f"**Style:** {ai.style}")
                             st.caption(ai.reason)
                         except Exception as e:
                             st.error(f"API Error: {e}")
