@@ -196,7 +196,7 @@ elif missing_target == "Missing Cameo Pokémon":
     sql_condition = "cameo_frequency > 0 AND (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null')"
     target_column = "cameo_pokemon"
 else:
-    sql_condition = "card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null'"
+    sql_condition = "card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null' AND supertype = 'Pokemon'"
     target_column = "card_aesthetic"
 
 # Added cameo_frequency and cameo_pokemon to the query so the UI can reference them
