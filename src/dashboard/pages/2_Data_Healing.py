@@ -193,7 +193,7 @@ elif missing_target == "Missing Supertype":
     target_column = "supertype"
 elif missing_target == "Missing Cameo Pokémon":
     # Identifies cards with a cameo count but no JSON data
-    sql_condition = "cameo_frequency > 0 AND (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null')"
+    sql_condition = "cameo_frequency > 0 AND (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null' AND supertype = 'Pokemon')"
     target_column = "cameo_pokemon"
 else:
     sql_condition = "card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null' AND supertype = 'Pokemon'"
