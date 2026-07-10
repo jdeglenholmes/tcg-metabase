@@ -9,7 +9,7 @@ if root_dir not in sys.path:
 
 import streamlit as st
 from sqlalchemy import text
-from src.dashboard.utils import render_sidebar, get_engine
+from src.dashboard.utils import render_sidebar, get_engine, AESTHETIC_KEYS
 
 st.set_page_config(page_title="Data Healing", layout="wide")
 render_sidebar()
@@ -174,11 +174,10 @@ missing_target = st.selectbox(
         "Missing Rarity", 
         "Missing Market Price",
         "Missing Supertype",
-        "Unreviewed Aesthetics (Cameos & Trainer Gallery)"
+        "Missing Card Aesthetics" # Updated to reflect new schema!
     ]
 )
 
-# Added empty string '' checks to ensure all invisible data is caught
 if missing_target == "Missing Illustrator":
     sql_condition = "(illustrator = 'Unknown' OR illustrator IS NULL OR illustrator = '') AND supertype IN ('Pokemon', 'Pokémon')"
     target_column = "illustrator"
@@ -192,7 +191,8 @@ elif missing_target == "Missing Supertype":
     sql_condition = "supertype = 'Unknown' OR supertype IS NULL OR supertype = ''"
     target_column = "supertype"
 else:
-    sql_condition = "card_aesthetic IS NULL OR card_aesthetic = ''"
+    # THE FIX: Safely cast JSON to text to check for empty brackets without crashing Postgres
+    sql_condition = "card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null'"
     target_column = "card_aesthetic"
 
 query = text(f"""
@@ -237,22 +237,22 @@ else:
                 if target_column == "market_price":
                     new_val = st.number_input(f"New Price ($):", min_value=0.0, format="%.2f", key=f"input_{card['card_id']}")
                 elif target_column == "card_aesthetic":
+                    # THE FIX: Replace obsolete checkboxes with proper multi-select
                     st.markdown("**Tag Aesthetics:**")
-                    has_cameo = st.checkbox("Has Cameo", key=f"cam_{card['card_id']}")
-                    is_tg = st.checkbox("Is Trainer Gallery", key=f"tg_{card['card_id']}")
-                    aes_list = []
-                    if has_cameo: aes_list.append("has_cameo")
-                    if is_tg: aes_list.append("is_trainer_gallery")
-                    new_val = json.dumps(aes_list)
+                    selected_aes = st.multiselect(
+                        "Select Aesthetics:", 
+                        options=AESTHETIC_KEYS, 
+                        key=f"aes_{card['card_id']}"
+                    )
+                    new_val = json.dumps(selected_aes) if selected_aes else None
                 elif target_column != "supertype":
-                    # Only show text input if we aren't explicitly fixing the supertype
                     new_val = st.text_input(f"New {target_column.capitalize()}:", key=f"input_{card['card_id']}")
                 
                 # --- SUPERTYPE SELECTOR ---
                 valid_supertypes = ["Pokemon", "Trainer", "Energy", "Item"]
                 current_sup = card.get('supertype')
                 if current_sup not in valid_supertypes:
-                    current_sup = "Pokemon" # Fallback if data is totally missing
+                    current_sup = "Pokemon" 
                 
                 new_supertype = st.selectbox(
                     "Assign Supertype:" if target_column == "supertype" else "Supertype Override:", 
@@ -265,14 +265,12 @@ else:
                 if st.button("Save Fix", key=f"save_{card['card_id']}", use_container_width=True, type="primary"):
                     with engine.begin() as conn:
                         if target_column == "supertype":
-                            # Standard save logic for the new Missing Supertype queue
                             conn.execute(text("""
                                 UPDATE tcg_cards
                                 SET supertype = :supertype
                                 WHERE card_id = :id
                             """), {"supertype": new_supertype, "id": card['card_id']})
                         else:
-                            # Override logic for all other queues
                             if new_val or new_val == 0.0 or new_val == "[]":
                                 conn.execute(text(f"""
                                     UPDATE tcg_cards
@@ -291,8 +289,5 @@ else:
 # ==========================================
 # 4. RENDER NEW STATIONS & VISUALS
 # ==========================================
-# Render the new JSON-based Cameo Identification Queue
 render_cameo_sweep_station(engine)
-
-# Render the overarching visual charts
 render_missing_data_visualizations()
