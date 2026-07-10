@@ -9,7 +9,7 @@ if root_dir not in sys.path:
 
 import streamlit as st
 from sqlalchemy import text
-from src.dashboard.utils import render_sidebar, get_engine
+from src.dashboard.utils import render_sidebar, get_engine, AESTHETIC_KEYS
 
 st.set_page_config(page_title="Data Healing", layout="wide")
 render_sidebar()
@@ -19,6 +19,16 @@ st.markdown("Resolve missing or 'Unknown' database attributes to maintain high-f
 
 engine = get_engine()
 
+# --- HELPER FUNCTION ---
+def parse_json_array(raw_val):
+    """Safely extracts a full JSON array for multiselect and text widgets."""
+    if not raw_val: return []
+    try:
+        parsed = json.loads(raw_val)
+        return parsed if isinstance(parsed, list) else [parsed]
+    except:
+        return [str(raw_val).strip('[]"\' ')]
+
 # ==========================================
 # 1. CAMEO SWEEP STATE & FUNCTIONS
 # ==========================================
@@ -26,7 +36,6 @@ if 'cameo_sweep_batch' not in st.session_state:
     st.session_state['cameo_sweep_batch'] = []
 
 def fetch_cameo_sweep_batch(engine, limit=12):
-    """Fetches cards that have a detected cameo frequency but no named pokemon."""
     query = text("""
         SELECT card_id, name, image_url, cameo_frequency, art_style
         FROM tcg_cards
@@ -45,7 +54,6 @@ def fetch_cameo_sweep_batch(engine, limit=12):
         st.error(f"Database Fetch Error: {e}")
 
 def save_cameo_tags(engine, card_id):
-    """Saves the comma-separated string as a JSON array."""
     cameo_str = st.session_state[f"sweep_cameo_{card_id}"]
     new_cameos_list = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
     
@@ -65,7 +73,6 @@ def save_cameo_tags(engine, card_id):
                 "id": card_id
             })
             
-        # UI Cleanup: Instantly remove the card from the screen
         st.session_state['cameo_sweep_batch'] = [
             c for c in st.session_state['cameo_sweep_batch'] if c['card_id'] != card_id
         ]
@@ -97,17 +104,14 @@ def render_cameo_sweep_station(engine):
                 st.image(card['image_url'], use_container_width=True)
                 st.markdown(f"")
                 
-                # Show the AI's hint
                 st.caption(f"🤖 AI Detected:  entities**")
                 
-                # Text Input for the names
                 st.text_input(
                     "Cameo Pokémon:", 
                     placeholder="e.g. Pikachu, Eevee", 
                     key=f"sweep_cameo_{c_id}"
                 )
                 
-                # Save button
                 if st.button("💾 Lock Cameos", key=f"sweep_save_{c_id}", use_container_width=True):
                     save_cameo_tags(engine, c_id)
                     st.rerun()
@@ -136,13 +140,11 @@ def render_missing_data_visualizations():
         with engine.connect() as conn:
             overall_df = pd.read_sql(overall_query, conn)
         
-        # Melt for easy charting
         overall_melt = overall_df.melt(var_name="Category", value_name="Percentage")
         st.bar_chart(overall_melt.set_index("Category"))
         
     with col2:
         st.markdown("**Missing Illustrator by Art Style (Top 10 Worst Offenders)**")
-        # Only looks at Human_Audited cards so the data isn't skewed by unverified styles
         genre_query = text("""
             SELECT 
                 art_style::text as "Art Style",
@@ -151,7 +153,7 @@ def render_missing_data_visualizations():
             WHERE labeled_by = 'Human_Audit' 
               AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
             GROUP BY art_style::text
-            HAVING COUNT(*) > 5 -- Require at least a small sample size
+            HAVING COUNT(*) > 5 
             ORDER BY "Missing %" DESC
             LIMIT 10
         """)
@@ -174,11 +176,11 @@ missing_target = st.selectbox(
         "Missing Rarity", 
         "Missing Market Price",
         "Missing Supertype",
-        "Unreviewed Aesthetics (Cameos & Trainer Gallery)"
+        "Missing Card Aesthetics",
+        "Missing Cameo Pokémon" 
     ]
 )
 
-# Added empty string '' checks to ensure all invisible data is caught
 if missing_target == "Missing Illustrator":
     sql_condition = "(illustrator = 'Unknown' OR illustrator IS NULL OR illustrator = '') AND supertype IN ('Pokemon', 'Pokémon')"
     target_column = "illustrator"
@@ -191,12 +193,22 @@ elif missing_target == "Missing Market Price":
 elif missing_target == "Missing Supertype":
     sql_condition = "supertype = 'Unknown' OR supertype IS NULL OR supertype = ''"
     target_column = "supertype"
+elif missing_target == "Missing Cameo Pokémon":
+    sql_condition = """
+    cameo_frequency > 0 AND
+    supertype = 'Pokemon' AND
+    (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null')
+    """
+    target_column = "cameo_pokemon"
 else:
-    sql_condition = "card_aesthetic IS NULL OR card_aesthetic = ''"
+    sql_condition = """
+    supertype = 'Pokemon' AND 
+    (card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null')
+    """
     target_column = "card_aesthetic"
 
 query = text(f"""
-    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype
+    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype, cameo_frequency, cameo_pokemon
     FROM tcg_cards
     WHERE ({sql_condition})
     LIMIT 24
@@ -213,86 +225,89 @@ else:
     st.info(f"Displaying up to 24 cards requiring {target_column} updates.")
     cols = st.columns(4)
     for i, card in enumerate(cards):
+        c_id = card['card_id']
         with cols[i % 4]:
             with st.container(border=True):
                 st.image(card['image_url'], use_container_width=True)
                 
-                # --- BULLETPROOF EXPANDER ---
-                with st.expander(f"📖 {card['name']} Details"):
-                    def safe_display(val):
-                        if not val or str(val).strip() in ["", "Unknown", "None"]:
-                            return "⚠️ Missing"
-                        return str(val)
-
-                    st.markdown(f"**Current Supertype:** {safe_display(card.get('supertype'))}")
-                    st.markdown(f"**Illustrator:** {safe_display(card.get('illustrator'))}")
-                    st.markdown(f"**Rarity:** {safe_display(card.get('rarity'))}")
+                # --- EDITABLE METADATA EXPANDER ---
+                with st.expander(f"📖 {card['name']} (Edit Data)"):
+                    edit_ill = st.text_input("Illustrator:", value=card.get('illustrator') or "", key=f"ill_{c_id}")
+                    edit_rar = st.text_input("Rarity:", value=card.get('rarity') or "", key=f"rar_{c_id}")
                     
-                    price = card.get('market_price')
-                    price_display = f"${price:.2f}" if price else "⚠️ Missing"
-                    st.markdown(f"**Market Price:** {price_display}")
+                    current_price = card.get('market_price')
+                    edit_price = st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
+                    
+                    edit_freq = st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"freq_{c_id}")
+
+                # --- TARGET-SPECIFIC UI ELEMENTS ---
+                # We retain the original values unless they are explicitly edited in the dynamic blocks below
+                edit_aes = card.get('card_aesthetic')
+                edit_cameo_pkmn = card.get('cameo_pokemon')
                 
-                # --- DYNAMIC INPUT UI ---
-                new_val = None
-                if target_column == "market_price":
-                    new_val = st.number_input(f"New Price ($):", min_value=0.0, format="%.2f", key=f"input_{card['card_id']}")
-                elif target_column == "card_aesthetic":
+                if target_column == "card_aesthetic":
                     st.markdown("**Tag Aesthetics:**")
-                    has_cameo = st.checkbox("Has Cameo", key=f"cam_{card['card_id']}")
-                    is_tg = st.checkbox("Is Trainer Gallery", key=f"tg_{card['card_id']}")
-                    aes_list = []
-                    if has_cameo: aes_list.append("has_cameo")
-                    if is_tg: aes_list.append("is_trainer_gallery")
-                    new_val = json.dumps(aes_list)
-                elif target_column != "supertype":
-                    # Only show text input if we aren't explicitly fixing the supertype
-                    new_val = st.text_input(f"New {target_column.capitalize()}:", key=f"input_{card['card_id']}")
-                
+                    current_aes_list = parse_json_array(card.get('card_aesthetic'))
+                    valid_defaults = [aes for aes in current_aes_list if aes in AESTHETIC_KEYS]
+                    
+                    selected_aes = st.multiselect(
+                        "Select Aesthetics:", 
+                        options=AESTHETIC_KEYS, 
+                        default=valid_defaults,
+                        key=f"aes_{c_id}"
+                    )
+                    edit_aes = json.dumps(selected_aes) if selected_aes else None
+                    
+                elif target_column == "cameo_pokemon":
+                    st.markdown("**Identify Cameos:**")
+                    current_cameos = parse_json_array(card.get('cameo_pokemon'))
+                    cameo_str_val = ", ".join([c for c in current_cameos if c]) if current_cameos else ""
+                    
+                    cameo_str = st.text_input("Cameo Pokémon (comma-separated):", value=cameo_str_val, key=f"cam_{c_id}", placeholder="e.g. Pikachu, Eevee")
+                    new_val_list = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
+                    edit_cameo_pkmn = json.dumps(new_val_list) if new_val_list else None
+
                 # --- SUPERTYPE SELECTOR ---
                 valid_supertypes = ["Pokemon", "Trainer", "Energy", "Item"]
                 current_sup = card.get('supertype')
                 if current_sup not in valid_supertypes:
-                    current_sup = "Pokemon" # Fallback if data is totally missing
+                    current_sup = "Pokemon" 
                 
-                new_supertype = st.selectbox(
+                edit_sup = st.selectbox(
                     "Assign Supertype:" if target_column == "supertype" else "Supertype Override:", 
                     options=valid_supertypes,
                     index=valid_supertypes.index(current_sup),
-                    key=f"sup_{card['card_id']}"
+                    key=f"sup_{c_id}"
                 )
                 
-                # --- SAVE LOGIC ---
-                if st.button("Save Fix", key=f"save_{card['card_id']}", use_container_width=True, type="primary"):
+                # --- UNIFIED MASTER SAVE LOGIC ---
+                if st.button("💾 Save All Changes", key=f"save_{c_id}", use_container_width=True, type="primary"):
                     with engine.begin() as conn:
-                        if target_column == "supertype":
-                            # Standard save logic for the new Missing Supertype queue
-                            conn.execute(text("""
-                                UPDATE tcg_cards
-                                SET supertype = :supertype
-                                WHERE card_id = :id
-                            """), {"supertype": new_supertype, "id": card['card_id']})
-                        else:
-                            # Override logic for all other queues
-                            if new_val or new_val == 0.0 or new_val == "[]":
-                                conn.execute(text(f"""
-                                    UPDATE tcg_cards
-                                    SET {target_column} = :new_val, supertype = :supertype
-                                    WHERE card_id = :id
-                                """), {"new_val": new_val, "supertype": new_supertype, "id": card['card_id']})
-                            else:
-                                conn.execute(text(f"""
-                                    UPDATE tcg_cards
-                                    SET supertype = :supertype,
-                                        {target_column} = 'N/A'
-                                    WHERE card_id = :id
-                                """), {"supertype": new_supertype, "id": card['card_id']})
+                        conn.execute(text("""
+                            UPDATE tcg_cards
+                            SET illustrator = :ill,
+                                rarity = :rar,
+                                market_price = :price,
+                                cameo_frequency = :freq,
+                                supertype = :sup,
+                                card_aesthetic = :aes,
+                                cameo_pokemon = :cameo_pkmn,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE card_id = :id
+                        """), {
+                            "ill": edit_ill if edit_ill else None,
+                            "rar": edit_rar if edit_rar else None,
+                            "price": edit_price if edit_price > 0 else None,
+                            "freq": edit_freq,
+                            "sup": edit_sup,
+                            "aes": edit_aes,
+                            "cameo_pkmn": edit_cameo_pkmn,
+                            "id": c_id
+                        })
                     st.rerun()
 
 # ==========================================
 # 4. RENDER NEW STATIONS & VISUALS
 # ==========================================
-# Render the new JSON-based Cameo Identification Queue
-render_cameo_sweep_station(engine)
-
-# Render the overarching visual charts
+# render_cameo_sweep_station(engine)
 render_missing_data_visualizations()
