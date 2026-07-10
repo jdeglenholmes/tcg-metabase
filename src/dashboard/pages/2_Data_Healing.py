@@ -174,7 +174,8 @@ missing_target = st.selectbox(
         "Missing Rarity", 
         "Missing Market Price",
         "Missing Supertype",
-        "Missing Card Aesthetics" # Updated to reflect new schema!
+        "Missing Card Aesthetics",
+        "Missing Cameo Pokémon" # <-- New Option Added
     ]
 )
 
@@ -190,13 +191,17 @@ elif missing_target == "Missing Market Price":
 elif missing_target == "Missing Supertype":
     sql_condition = "supertype = 'Unknown' OR supertype IS NULL OR supertype = ''"
     target_column = "supertype"
+elif missing_target == "Missing Cameo Pokémon":
+    # Identifies cards with a cameo count but no JSON data
+    sql_condition = "cameo_frequency > 0 AND (cameo_pokemon IS NULL OR cameo_pokemon::text = '[]' OR cameo_pokemon::text = 'null')"
+    target_column = "cameo_pokemon"
 else:
-    # THE FIX: Safely cast JSON to text to check for empty brackets without crashing Postgres
     sql_condition = "card_aesthetic IS NULL OR card_aesthetic::text = '[]' OR card_aesthetic::text = 'null'"
     target_column = "card_aesthetic"
 
+# Added cameo_frequency and cameo_pokemon to the query so the UI can reference them
 query = text(f"""
-    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype
+    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype, cameo_frequency, cameo_pokemon
     FROM tcg_cards
     WHERE ({sql_condition})
     LIMIT 24
@@ -231,13 +236,16 @@ else:
                     price = card.get('market_price')
                     price_display = f"${price:.2f}" if price else "⚠️ Missing"
                     st.markdown(f"**Market Price:** {price_display}")
+                    
+                    # Show the hint if we are specifically hunting cameos
+                    if target_column == "cameo_pokemon":
+                        st.markdown(f"🤖 **AI Detected:** {card.get('cameo_frequency')} background entities")
                 
                 # --- DYNAMIC INPUT UI ---
                 new_val = None
                 if target_column == "market_price":
                     new_val = st.number_input(f"New Price ($):", min_value=0.0, format="%.2f", key=f"input_{card['card_id']}")
                 elif target_column == "card_aesthetic":
-                    # THE FIX: Replace obsolete checkboxes with proper multi-select
                     st.markdown("**Tag Aesthetics:**")
                     selected_aes = st.multiselect(
                         "Select Aesthetics:", 
@@ -245,6 +253,12 @@ else:
                         key=f"aes_{card['card_id']}"
                     )
                     new_val = json.dumps(selected_aes) if selected_aes else None
+                elif target_column == "cameo_pokemon":
+                    st.markdown("**Identify Cameos:**")
+                    cameo_str = st.text_input("Cameo Pokémon (comma-separated):", key=f"cam_{card['card_id']}", placeholder="e.g. Pikachu, Eevee")
+                    # Safely convert the string into a python list, then to JSON
+                    new_val_list = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
+                    new_val = json.dumps(new_val_list) if new_val_list else None
                 elif target_column != "supertype":
                     new_val = st.text_input(f"New {target_column.capitalize()}:", key=f"input_{card['card_id']}")
                 
@@ -270,8 +284,16 @@ else:
                                 SET supertype = :supertype
                                 WHERE card_id = :id
                             """), {"supertype": new_supertype, "id": card['card_id']})
+                        elif target_column in ["card_aesthetic", "cameo_pokemon"]:
+                            # Bypass the 'N/A' string assignment which breaks JSONB columns
+                            conn.execute(text(f"""
+                                UPDATE tcg_cards
+                                SET {target_column} = :new_val, supertype = :supertype
+                                WHERE card_id = :id
+                            """), {"new_val": new_val, "supertype": new_supertype, "id": card['card_id']})
                         else:
-                            if new_val or new_val == 0.0 or new_val == "[]":
+                            # Standard logic for text/numeric columns
+                            if new_val or new_val == 0.0:
                                 conn.execute(text(f"""
                                     UPDATE tcg_cards
                                     SET {target_column} = :new_val, supertype = :supertype
@@ -289,5 +311,5 @@ else:
 # ==========================================
 # 4. RENDER NEW STATIONS & VISUALS
 # ==========================================
-render_cameo_sweep_station(engine)
+# render_cameo_sweep_station(engine)
 render_missing_data_visualizations()
