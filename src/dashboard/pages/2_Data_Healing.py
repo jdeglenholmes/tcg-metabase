@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-import pandas as pd
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if root_dir not in sys.path:
@@ -118,61 +117,9 @@ def render_cameo_sweep_station(engine):
                     save_cameo_tags(engine, c_id)
                     st.rerun()
 
-# ==========================================
-# 2. VISUALIZATION COMPONENT
-# ==========================================
-def render_missing_data_visualizations():
-    engine = get_engine()
-    
-    st.divider()
-    st.subheader("📊 Missing Metadata Landscape")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Overall Missing Data**")
-        overall_query = text("""
-            SELECT 
-                ROUND((COUNT(*) FILTER (WHERE illustrator IS NULL OR illustrator IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Illustrator %",
-                ROUND((COUNT(*) FILTER (WHERE market_price IS NULL OR market_price = 0) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Price %",
-                ROUND((COUNT(*) FILTER (WHERE rarity IS NULL OR rarity IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing Rarity %"
-            FROM tcg_cards
-            WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
-        """)
-        with engine.connect() as conn:
-            results = conn.execute(overall_query).mappings().fetchall()
-            overall_df = pd.DataFrame([dict(r) for r in results])
-        
-        if not overall_df.empty:
-            overall_melt = overall_df.melt(var_name="Category", value_name="Percentage")
-            st.bar_chart(overall_melt.set_index("Category"))
-        
-    with col2:
-        st.markdown("**Missing Illustrator by Art Style (Top 10 Worst Offenders)**")
-        genre_query = text("""
-            SELECT 
-                art_style::text as "Art Style",
-                ROUND((COUNT(*) FILTER (WHERE illustrator IS NULL OR illustrator IN ('', 'Unknown', 'N/A')) * 100.0 / NULLIF(COUNT(*), 0)), 1) as "Missing %"
-            FROM tcg_cards
-            WHERE labeled_by = 'Human_Audit' 
-              AND REPLACE(supertype, 'é', 'e') = 'Pokemon'
-            GROUP BY art_style::text
-            HAVING COUNT(*) > 5 
-            ORDER BY "Missing %" DESC
-            LIMIT 10
-        """)
-        with engine.connect() as conn:
-            results2 = conn.execute(genre_query).mappings().fetchall()
-            genre_df = pd.DataFrame([dict(r) for r in results2])
-            
-        if not genre_df.empty:
-            st.bar_chart(genre_df.set_index("Art Style"))
-        else:
-            st.info("Not enough audited data to generate genre breakdown.")
-
 
 # ==========================================
-# 3. LEGACY TARGET SELECTOR (Standard Healing)
+# 2. LEGACY TARGET SELECTOR (Standard Healing)
 # ==========================================
 missing_target = st.selectbox(
     "Select Missing Data Category to Resolve:",
@@ -212,8 +159,8 @@ else:
     """
     target_column = "card_aesthetic"
 
-# Critical Fix 1: Cast JSON columns to text to prevent memory corruption
-# Critical Fix 2: Added ORDER BY card_id to prevent grid reshuffling on widget interaction
+# Cast JSON columns to text to prevent memory corruption
+# Added ORDER BY card_id to prevent grid reshuffling on widget interaction
 query = text(f"""
     SELECT card_id, name, image_url, illustrator, rarity, market_price, 
            card_aesthetic::text as card_aesthetic, 
@@ -320,9 +267,3 @@ else:
                             "id": c_id
                         })
                     st.rerun()
-
-# ==========================================
-# 4. RENDER NEW STATIONS & VISUALS
-# ==========================================
-# render_cameo_sweep_station(engine)
-render_missing_data_visualizations()
