@@ -21,8 +21,8 @@ engine = get_engine()
 
 # --- HELPER FUNCTION ---
 def parse_json_array(raw_val):
-    """Safely extracts a full JSON array for multiselect and text widgets."""
-    if not raw_val: return []
+    """Safely extracts a full JSON array. Handles PostgreSQL 'null' strings."""
+    if not raw_val or str(raw_val).lower() == 'null': return []
     if isinstance(raw_val, list): return raw_val 
     try:
         parsed = json.loads(raw_val)
@@ -37,8 +37,9 @@ if 'cameo_sweep_batch' not in st.session_state:
     st.session_state['cameo_sweep_batch'] = []
 
 def fetch_cameo_sweep_batch(engine, limit=12):
+    # Added ::text casting to protect the database driver
     query = text("""
-        SELECT card_id, name, image_url, cameo_frequency, art_style
+        SELECT card_id, name, image_url, cameo_frequency, art_style::text as art_style
         FROM tcg_cards
         WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
           AND image_url IS NOT NULL
@@ -139,7 +140,6 @@ def render_missing_data_visualizations():
             WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon'
         """)
         with engine.connect() as conn:
-            # FIX: Execute query normally and cast mappings to native Python dicts to isolate Pandas from psycopg2's C-buffers
             results = conn.execute(overall_query).mappings().fetchall()
             overall_df = pd.DataFrame([dict(r) for r in results])
         
@@ -162,7 +162,6 @@ def render_missing_data_visualizations():
             LIMIT 10
         """)
         with engine.connect() as conn:
-            # FIX: Bypass pd.read_sql for the second dataframe as well
             results2 = conn.execute(genre_query).mappings().fetchall()
             genre_df = pd.DataFrame([dict(r) for r in results2])
             
@@ -213,15 +212,22 @@ else:
     """
     target_column = "card_aesthetic"
 
+# Critical Fix 1: Cast JSON columns to text to prevent memory corruption
+# Critical Fix 2: Added ORDER BY card_id to prevent grid reshuffling on widget interaction
 query = text(f"""
-    SELECT card_id, name, image_url, illustrator, rarity, market_price, card_aesthetic, supertype, cameo_frequency, cameo_pokemon
+    SELECT card_id, name, image_url, illustrator, rarity, market_price, 
+           card_aesthetic::text as card_aesthetic, 
+           supertype, cameo_frequency, 
+           cameo_pokemon::text as cameo_pokemon
     FROM tcg_cards
     WHERE ({sql_condition})
+    ORDER BY card_id 
     LIMIT 24
 """)
 
 with engine.connect() as conn:
-    cards = conn.execute(query).mappings().fetchall()
+    # Explicitly convert to standard Python dicts immediately
+    cards = [dict(c) for c in conn.execute(query).mappings().fetchall()]
 
 st.divider()
 
@@ -247,13 +253,12 @@ else:
                     edit_freq = st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"freq_{c_id}")
 
                 # --- TARGET-SPECIFIC UI ELEMENTS ---
+                
                 edit_aes = card.get('card_aesthetic')
-                if isinstance(edit_aes, (list, dict)):
-                    edit_aes = json.dumps(edit_aes)
+                if edit_aes == 'null': edit_aes = None
                     
                 edit_cameo_pkmn = card.get('cameo_pokemon')
-                if isinstance(edit_cameo_pkmn, (list, dict)):
-                    edit_cameo_pkmn = json.dumps(edit_cameo_pkmn)
+                if edit_cameo_pkmn == 'null': edit_cameo_pkmn = None
                 
                 if target_column == "card_aesthetic":
                     st.markdown("**Tag Aesthetics:**")
