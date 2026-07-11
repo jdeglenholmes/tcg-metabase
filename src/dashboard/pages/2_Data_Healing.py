@@ -23,6 +23,8 @@ engine = get_engine()
 def parse_json_array(raw_val):
     """Safely extracts a full JSON array for multiselect and text widgets."""
     if not raw_val: return []
+    # FIX 1: If SQLAlchemy already parsed the JSONB into a list, return it immediately to avoid a json.loads() crash.
+    if isinstance(raw_val, list): return raw_val 
     try:
         parsed = json.loads(raw_val)
         return parsed if isinstance(parsed, list) else [parsed]
@@ -104,7 +106,7 @@ def render_cameo_sweep_station(engine):
                 st.image(card['image_url'], use_container_width=True)
                 st.markdown(f"")
                 
-                st.caption(f"🤖 AI Detected:  entities**")
+                st.caption(f"🤖 AI Detected: {card.get('cameo_frequency')} entities")
                 
                 st.text_input(
                     "Cameo Pokémon:", 
@@ -241,9 +243,16 @@ else:
                     edit_freq = st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"freq_{c_id}")
 
                 # --- TARGET-SPECIFIC UI ELEMENTS ---
-                # We retain the original values unless they are explicitly edited in the dynamic blocks below
+                
+                # FIX 2: Protect unedited JSON values. If SQLAlchemy fetched them as lists, convert them BACK to JSON strings 
+                # so psycopg2 doesn't crash when you hit the 'Save All Changes' button.
                 edit_aes = card.get('card_aesthetic')
+                if isinstance(edit_aes, (list, dict)):
+                    edit_aes = json.dumps(edit_aes)
+                    
                 edit_cameo_pkmn = card.get('cameo_pokemon')
+                if isinstance(edit_cameo_pkmn, (list, dict)):
+                    edit_cameo_pkmn = json.dumps(edit_cameo_pkmn)
                 
                 if target_column == "card_aesthetic":
                     st.markdown("**Tag Aesthetics:**")
@@ -261,7 +270,8 @@ else:
                 elif target_column == "cameo_pokemon":
                     st.markdown("**Identify Cameos:**")
                     current_cameos = parse_json_array(card.get('cameo_pokemon'))
-                    cameo_str_val = ", ".join([c for c in current_cameos if c]) if current_cameos else ""
+                    # FIX 3: Strictly cast the items to strings before joining to prevent a sequence TypeError
+                    cameo_str_val = ", ".join([str(c) for c in current_cameos if c]) if current_cameos else ""
                     
                     cameo_str = st.text_input("Cameo Pokémon (comma-separated):", value=cameo_str_val, key=f"cam_{c_id}", placeholder="e.g. Pikachu, Eevee")
                     new_val_list = [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
