@@ -36,7 +36,6 @@ if 'cameo_sweep_batch' not in st.session_state:
     st.session_state['cameo_sweep_batch'] = []
 
 def fetch_cameo_sweep_batch(engine, limit=12):
-    # Added ::text casting to protect the database driver
     query = text("""
         SELECT card_id, name, image_url, cameo_frequency, art_style::text as art_style
         FROM tcg_cards
@@ -64,11 +63,12 @@ def save_cameo_tags(engine, card_id):
 
     try:
         with engine.begin() as conn:
+            # BROADCAST UPDATE: Targets the specific card AND any identical artwork variants
             conn.execute(text("""
                 UPDATE tcg_cards 
                 SET cameo_pokemon = :cameo_names,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE card_id = :id
+                WHERE image_url = (SELECT image_url FROM tcg_cards WHERE card_id = :id)
             """), {
                 "cameo_names": json.dumps(new_cameos_list),
                 "id": card_id
@@ -77,7 +77,7 @@ def save_cameo_tags(engine, card_id):
         st.session_state['cameo_sweep_batch'] = [
             c for c in st.session_state['cameo_sweep_batch'] if c['card_id'] != card_id
         ]
-        st.toast(f"✅ Saved cameos for {card_id}!")
+        st.toast(f"✅ Saved cameos for {card_id} and identical variants!")
     except Exception as e:
         st.error(f"Database Save Error: {e}")
 
@@ -159,8 +159,6 @@ else:
     """
     target_column = "card_aesthetic"
 
-# Cast JSON columns to text to prevent memory corruption
-# Added ORDER BY card_id to prevent grid reshuffling on widget interaction
 query = text(f"""
     SELECT card_id, name, image_url, illustrator, rarity, market_price, 
            card_aesthetic::text as card_aesthetic, 
@@ -173,7 +171,6 @@ query = text(f"""
 """)
 
 with engine.connect() as conn:
-    # Explicitly convert to standard Python dicts immediately
     cards = [dict(c) for c in conn.execute(query).mappings().fetchall()]
 
 st.divider()
@@ -200,7 +197,6 @@ else:
                     edit_freq = st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"freq_{c_id}")
 
                 # --- TARGET-SPECIFIC UI ELEMENTS ---
-                
                 edit_aes = card.get('card_aesthetic')
                 if edit_aes == 'null': edit_aes = None
                     
@@ -245,6 +241,7 @@ else:
                 # --- UNIFIED MASTER SAVE LOGIC ---
                 if st.button("💾 Save All Changes", key=f"save_{c_id}", use_container_width=True, type="primary"):
                     with engine.begin() as conn:
+                        # 1. Update all fields for the specific card you interacted with
                         conn.execute(text("""
                             UPDATE tcg_cards
                             SET illustrator = :ill,
@@ -266,4 +263,26 @@ else:
                             "cameo_pkmn": edit_cameo_pkmn,
                             "id": c_id
                         })
+                        
+                        # 2. Automatically broadcast visual metadata (artwork-based) to duplicate cards
+                        if card['image_url']:
+                            conn.execute(text("""
+                                UPDATE tcg_cards
+                                SET cameo_frequency = :freq,
+                                    card_aesthetic = :aes,
+                                    cameo_pokemon = :cameo_pkmn,
+                                    -- Only overwrite missing illustrators on duplicates
+                                    illustrator = COALESCE(illustrator, :ill),
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE image_url = :img_url
+                                  AND card_id != :id
+                            """), {
+                                "freq": edit_freq,
+                                "aes": edit_aes,
+                                "cameo_pkmn": edit_cameo_pkmn,
+                                "ill": edit_ill if edit_ill else None,
+                                "img_url": card['image_url'],
+                                "id": c_id
+                            })
+                            
                     st.rerun()
