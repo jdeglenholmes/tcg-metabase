@@ -35,35 +35,19 @@ if 'card_batch' not in st.session_state:
     st.session_state['card_batch'] = []
 
 # --- UI CONTROLS & FILTER RIBBON ---
-col1, col2, col3, col4 = st.columns([2, 3, 1, 1.5])
+col1, col2, col3 = st.columns([3, 1, 1.5])
 
 with col1:
-    view_mode = st.radio("View Mode:", ["Unlabeled / Needs Review", "Currently Labeled", "Search / Filter"])
-    style_filter = st.selectbox("Style:", ["ALL"] + ART_STYLE_KEYS) if view_mode == "Currently Labeled" else None
+    search_input = st.text_input("🔍 Search Name or ID:")
 
 with col2:
-    search_input = st.text_input("🔍 Search Name or ID:")
-    
-    st.markdown("**🏷️ Modular Filter Ribbon**")
-    f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1: filter_cameo = st.toggle("Has Cameo Data")
-    with f_col2: filter_trainer = st.toggle("Is Trainer Card")
-    with f_col3: filter_missing_ill = st.toggle("Missing Illustrator")
-    
-    active_filters = {
-        "has_cameo": filter_cameo,
-        "has_trainer": filter_trainer,
-        "missing_illustrator": filter_missing_ill
-    }
-
-with col3:
     display_limit = st.number_input("Limit:", 4, 100, 24, 4)
 
-with col4:
+with col3:
     st.markdown("<br><br>", unsafe_allow_html=True)
     if st.button("🔄 Fetch New Batch", type="primary", use_container_width=True):
         try:
-            results = fetch_card_batch(engine, view_mode, style_filter, search_input, display_limit, active_filters)
+            results = fetch_card_batch(engine, search_input, display_limit)
             st.session_state['card_batch'] = results
         except Exception as e:
             st.error(f"Database Fetch Error: {e}")
