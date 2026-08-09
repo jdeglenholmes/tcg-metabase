@@ -20,7 +20,7 @@ AUTO_STYLES = [
 ]
 
 SUGGESTED_REMAINING_STYLES = [
-    "stained_glass", "pop_art", "wood_block", "ukiyo_e", "standard_generic"
+    "simple_blocky", "stained_glass", "pop_art", "wood_block", "ukiyo_e", "standard_generic"
 ]
 
 ART_STYLE_KEYS = CORE_STYLES + AUTO_STYLES + SUGGESTED_REMAINING_STYLES
@@ -28,6 +28,7 @@ ART_STYLE_KEYS = CORE_STYLES + AUTO_STYLES + SUGGESTED_REMAINING_STYLES
 AESTHETIC_KEYS = [
     "kinetic", "chaotic", "modern", "whimsical", "legendary", "neutral",
     "minimalist", "maximalist", "cinematic", "surrealist", "traditional_hand_painted",
+    "serene", "awe", "mystery",
     "eerie_gothic", "cottagecore", "lush_botanical", "neon_cyberpunk", "high_stakes_showdown"
 ]
 @st.cache_resource
