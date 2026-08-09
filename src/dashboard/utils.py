@@ -52,7 +52,7 @@ def parse_json_column(raw_val, fallback):
         return str(raw_val).strip('[]"\' ')
 
 # --- DATABASE TRANSACTIONS ---
-def fetch_card_batch(engine, mode, style, search, limit, filters):
+def fetch_card_batch(engine, search, limit):
     base_query = """
         SELECT card_id, name, illustrator, rarity, market_price, image_url, 
                art_style, card_aesthetic, has_trainer, cameo_frequency, cameo_pokemon
@@ -61,25 +61,10 @@ def fetch_card_batch(engine, mode, style, search, limit, filters):
     """
     params = {}
     
-    if mode == "Unlabeled / Needs Review":
-        base_query += " AND (labeled_by IS NULL OR labeled_by != 'Human_Audit')"
-    elif mode == "Currently Labeled":
-        base_query += " AND labeled_by = 'Human_Audit'"
-        if style and style != "ALL":
-            base_query += " AND art_style @> :style"
-            params["style"] = json.dumps([style])
-            
     if search:
         base_query += " AND (name ILIKE :s OR card_id ILIKE :s)"
         params["s"] = f"%{search}%"
-        
-    if filters.get("has_cameo"):
-        base_query += " AND cameo_frequency > 0"
-    if filters.get("has_trainer"):
-        base_query += " AND has_trainer = TRUE"
-    if filters.get("missing_illustrator"):
-        base_query += " AND (illustrator IS NULL OR illustrator = '')"
-        
+  
     base_query += " ORDER BY RANDOM() LIMIT :limit"
     params["limit"] = limit
     
