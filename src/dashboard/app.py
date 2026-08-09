@@ -54,7 +54,7 @@ with col3:
 
 # --- MODAL REPORT VIEW ---
 @st.dialog("Full Metadata Report", width="large")
-def show_metadata_report(card, current_view):
+def show_metadata_report(card):
     c_id = card['card_id']
     
     col_img, col_meta = st.columns([1, 1.5])
@@ -110,23 +110,19 @@ def show_metadata_report(card, current_view):
                 
                 try:
                     update_card_record(engine, c_id, update_data)
-                    
-                    if current_view == "Unlabeled / Needs Review":
-                        st.session_state['card_batch'] = [c for c in st.session_state['card_batch'] if c['card_id'] != c_id]
-                    else:
-                        for c in st.session_state['card_batch']:
-                            if c['card_id'] == c_id:
-                                c.update({
-                                    'art_style': f'["{update_data["style"]}"]',
-                                    'card_aesthetic': str(update_data["aesthetic"]).replace("'", '"'),
-                                    'illustrator': update_data["illustrator"],
-                                    'rarity': update_data["rarity"],
-                                    'market_price': update_data["price"],
-                                    'has_trainer': update_data["trainer"],
-                                    'cameo_frequency': update_data["cameo_freq"],
-                                    'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None
+                    for c in st.session_state['card_batch']:
+                        if c['card_id'] == c_id:
+                            c.update({
+                                'art_style': f'["{update_data["style"]}"]',
+                                'card_aesthetic': str(update_data["aesthetic"]).replace("'", '"'),
+                                'illustrator': update_data["illustrator"],
+                                'rarity': update_data["rarity"],
+                                'market_price': update_data["price"],
+                                'has_trainer': update_data["trainer"],
+                                'cameo_frequency': update_data["cameo_freq"],
+                                'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None
                                 })
-                                break
+                            break
                     st.rerun()
                 except Exception as e:
                     st.error(f"Database Save Error: {e}")
@@ -162,4 +158,4 @@ else:
             with st.container(border=True):
                 st.image(card['image_url'], use_container_width=True)
                 if st.button(f"🔍 Inspect {card['name']}", key=f"inspect_{card['card_id']}", use_container_width=True):
-                    show_metadata_report(card, view_mode)
+                    show_metadata_report(card)
