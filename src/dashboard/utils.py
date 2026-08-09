@@ -30,13 +30,6 @@ AESTHETIC_KEYS = [
     "minimalist", "maximalist", "cinematic", "surrealist", "traditional_hand_painted",
     "eerie_gothic", "cottagecore", "lush_botanical", "neon_cyberpunk", "high_stakes_showdown"
 ]
-
-# --- UI COMPONENTS ---
-def render_sidebar():
-    with st.sidebar:
-        st.title("TCG Auditor")
-        st.page_link("pages/poke_finder.py", label="Find Pokemon Cards", icon="🕵️")
-
 @st.cache_resource
 def get_engine():
     return get_base_engine()
