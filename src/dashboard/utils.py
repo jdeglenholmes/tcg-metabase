@@ -30,16 +30,32 @@ def parse_json_column(raw_val, fallback):
 
 # --- DATABASE TRANSACTIONS ---
 def fetch_card_batch(engine, search, limit):
+    # Added the JOIN and prefixed columns with 'c.' to avoid ambiguity
     base_query = """
-        SELECT card_id, name, illustrator, rarity, market_price, 
-        image_url, has_trainer, cameo_frequency, cameo_pokemon
-        FROM tcg_cards 
-        WHERE REPLACE(supertype, 'é', 'e') = 'Pokemon' AND image_url IS NOT NULL
+        SELECT 
+            c.card_id,
+            (SPLIT_PART(c.card_id, '-', 2) || '/ ' || s.total_cards) as position_id,
+            c.name, 
+            c.illustrator, 
+            c.rarity, 
+            c.market_price, 
+            c.image_url, 
+            c.has_trainer, 
+            c.cameo_frequency, 
+            c.cameo_pokemon,
+            s.name AS set_name
+        FROM 
+            tcg_cards c
+        LEFT JOIN 
+            card_sets s 
+            ON c.set_id = s.set_id
+        WHERE 
+            REPLACE(c.supertype, 'é', 'e') = 'Pokemon' AND c.image_url IS NOT NULL
     """
     params = {}
     
     if search:
-        base_query += " AND (name ILIKE :s OR card_id ILIKE :s)"
+        base_query += " AND (c.name ILIKE :s OR c.card_id ILIKE :s)"
         params["s"] = f"%{search}%"
   
     base_query += " ORDER BY RANDOM() LIMIT :limit"
