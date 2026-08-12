@@ -12,11 +12,13 @@ from src.dashboard.utils import (
 )
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Central Auditor", layout="wide")
+st.set_page_config(page_title="PokeCheckr", layout="wide")
 
-st.title("⚖️ Central Auditor")
-st.markdown("Edit metadata, log cameo appearances, and lock in human anchors.")
 
+st.title("PokeCheckr")
+st.markdown("Enhance Local Pokemon TCG Metdata viewed in a Gallery-Style Layout")
+
+# --- DB CONNECTION---
 engine = get_engine()
 
 # --- STATE MANAGEMENT ---
@@ -113,6 +115,24 @@ else:
     for i, card in enumerate(cards):
         with cols[i % 4]:
             with st.container(border=True):
+                # 1. The Card Image
                 st.image(card['image_url'], use_container_width=True)
-                if st.button(f"🔍 Inspect {card['name']}", key=f"inspect_{card['card_id']}", use_container_width=True):
+                
+                # 2. Native Streamlit Text Layout
+                st.markdown(f"**{card['name']}**")
+                
+                # Split the footer info into two native columns
+                info_col1, info_col2 = st.columns(2)
+                with info_col1:
+                    # Uses the new position_id from your SQL, falls back to card_id
+                    display_id = card.get('position_id') or card.get('card_id')
+                    st.caption(f"`{display_id}`")
+                
+                with info_col2:
+                    # Renders the set name in italics, aligned with Streamlit's native markdown
+                    set_name = card.get('set_name') or "Unknown"
+                    st.caption(f"*{set_name}*")
+                
+                # 3. The Native Inspect Button
+                if st.button("🔍 Inspect", key=f"inspect_{card['card_id']}", use_container_width=True):
                     show_metadata_report(card)
