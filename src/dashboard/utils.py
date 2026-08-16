@@ -1,6 +1,8 @@
-# src/dashboard/utils.py
 import os
 import json
+import requests
+from io import BytesIO
+from PIL import Image
 import streamlit as st
 from sqlalchemy import text
 from src.database.connection import get_engine as get_base_engine
@@ -19,22 +21,14 @@ def parse_json_array(raw_val):
         return parsed if isinstance(parsed, list) else [parsed]
     except:
         return [str(raw_val).strip('[]"\' ')]
-    
-def parse_json_column(raw_val, fallback):
-    if not raw_val: return fallback
-    try:
-        parsed = json.loads(raw_val)
-        return parsed[0] if isinstance(parsed, list) and len(parsed) > 0 else parsed
-    except: 
-        return str(raw_val).strip('[]"\' ')
 
 # --- DATABASE TRANSACTIONS ---
 def fetch_card_batch(engine, search, limit):
-    # Added the JOIN and prefixed columns with 'c.' to avoid ambiguity
+    # Added LEFT JOINs for connections and fixed the position_id string cast
     base_query = """
         SELECT 
             c.card_id,
-            (SPLIT_PART(c.card_id, '-', 2) || '/ ' || s.total_cards) as position_id,
+            (SPLIT_PART(c.card_id, '-', 2) || '/' || s.total_cards::text) as position_id,
             c.name, 
             c.illustrator, 
             c.rarity, 
@@ -43,12 +37,23 @@ def fetch_card_batch(engine, search, limit):
             c.has_trainer, 
             c.cameo_frequency, 
             c.cameo_pokemon,
-            s.name AS set_name
+            s.name AS set_name,
+            p.grid_group_name AS phys_group,
+            p.grid_width,
+            p.grid_height,
+            p.position_x,
+            p.position_y,
+            n.story_name,
+            n.sequence_order,
+            n.narrative_role
         FROM 
             tcg_cards c
         LEFT JOIN 
-            card_sets s 
-            ON c.set_id = s.set_id
+            card_sets s ON c.set_id = s.set_id
+        LEFT JOIN 
+            fact_physical_connections p ON c.card_id = p.card_id
+        LEFT JOIN 
+            fact_narrative_connections n ON c.card_id = n.card_id
         WHERE 
             REPLACE(c.supertype, 'é', 'e') = 'Pokemon' AND c.image_url IS NOT NULL
     """
@@ -66,28 +71,81 @@ def fetch_card_batch(engine, search, limit):
         return [dict(c) for c in results]
 
 def update_card_record(engine, card_id, data):
-    query = text("""
+    base_query = text("""
         UPDATE tcg_cards 
-        SET
-            illustrator = :illustrator,
-            rarity = :rarity,
-            market_price = :price,
-            has_trainer = :trainer,
-            cameo_frequency = :cameo_freq,
-            cameo_pokemon = :cameo_names,
+        SET illustrator = :illustrator, rarity = :rarity, market_price = :price,
+            has_trainer = :trainer, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
             updated_at = CURRENT_TIMESTAMP
         WHERE card_id = :id
     """)
     
-    params = {
-        "illustrator": data['illustrator'] if data['illustrator'] else None,
-        "rarity": data['rarity'] if data['rarity'] else None,
-        "price": data['price'] if data['price'] > 0 else None,
-        "trainer": data['trainer'],
-        "cameo_freq": data['cameo_freq'],
-        "cameo_names": json.dumps(data['cameo_names']) if data['cameo_names'] else None,
-        "id": card_id
-    }
+    phys_query = text("""
+        INSERT INTO fact_physical_connections (card_id, grid_group_name, grid_width, grid_height, position_x, position_y)
+        VALUES (:id, :phys_group, :grid_w, :grid_h, :pos_x, :pos_y)
+        ON CONFLICT (card_id) DO UPDATE SET
+            grid_group_name = EXCLUDED.grid_group_name, grid_width = EXCLUDED.grid_width,
+            grid_height = EXCLUDED.grid_height, position_x = EXCLUDED.position_x, position_y = EXCLUDED.position_y;
+    """)
     
+    narr_query = text("""
+        INSERT INTO fact_narrative_connections (card_id, story_name, sequence_order, narrative_role)
+        VALUES (:id, :story_name, :seq_order, :narr_role)
+        ON CONFLICT (card_id) DO UPDATE SET
+            story_name = EXCLUDED.story_name, sequence_order = EXCLUDED.sequence_order,
+            narrative_role = EXCLUDED.narrative_role;
+    """)
+
     with engine.begin() as conn:
-        conn.execute(query, params)
+        conn.execute(base_query, {
+            "illustrator": data['illustrator'] or None,
+            "rarity": data['rarity'] or None,
+            "price": data['price'] if data['price'] > 0 else None,
+            "trainer": data['trainer'],
+            "cameo_freq": data['cameo_freq'],
+            "cameo_names": json.dumps(data['cameo_names']) if data['cameo_names'] else None,
+            "id": card_id
+        })
+        
+        if data['phys_group']:
+            conn.execute(phys_query, data | {"id": card_id})
+        else:
+            conn.execute(text("DELETE FROM fact_physical_connections WHERE card_id = :id"), {"id": card_id})
+            
+        if data['story_name']:
+            conn.execute(narr_query, data | {"id": card_id})
+        else:
+            conn.execute(text("DELETE FROM fact_narrative_connections WHERE card_id = :id"), {"id": card_id})
+
+def fetch_and_stitch_grid(engine, group_name):
+    """Fetches all cards in a grid group and stitches them into a single image."""
+    query = text("""
+        SELECT 
+            c.image_url, p.grid_width, p.grid_height, p.position_x, p.position_y
+        FROM fact_physical_connections p
+        JOIN tcg_cards c ON p.card_id = c.card_id
+        WHERE p.grid_group_name = :group_name
+    """)
+    
+    with engine.connect() as conn:
+        pieces = conn.execute(query, {"group_name": group_name}).mappings().fetchall()
+        
+    if not pieces:
+        return None
+
+    grid_w = pieces[0]['grid_width']
+    grid_h = pieces[0]['grid_height']
+    
+    first_img_response = requests.get(pieces[0]['image_url'])
+    base_img = Image.open(BytesIO(first_img_response.content))
+    card_w, card_h = base_img.size
+    
+    canvas = Image.new('RGB', (card_w * grid_w, card_h * grid_h), color='black')
+    
+    for piece in pieces:
+        resp = requests.get(piece['image_url'])
+        img = Image.open(BytesIO(resp.content))
+        paste_x = (piece['position_x'] - 1) * card_w
+        paste_y = (piece['position_y'] - 1) * card_h
+        canvas.paste(img, (paste_x, paste_y))
+        
+    return canvas
