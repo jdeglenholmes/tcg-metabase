@@ -136,39 +136,39 @@ def fetch_and_stitch_grid(engine, group_name):
     grid_w = pieces[0]['grid_width']
     grid_h = pieces[0]['grid_height']
     
+    # Download and force the base image into memory with an active Alpha channel (RGBA)
     first_img_response = requests.get(pieces[0]['image_url'])
-    base_img = Image.open(BytesIO(first_img_response.content))
+    base_img = Image.open(BytesIO(first_img_response.content)).convert("RGBA")
     card_w, card_h = base_img.size
     
     # --- INFINITE RECURRENCE HANDLER ---
     if grid_w == 0 or grid_h == 0:
-        # Create a 1x3 canvas to demonstrate the infinite tiling
-        canvas = Image.new('RGB', (card_w * 3, card_h), color='black')
+        # Create an RGBA canvas (Transparent background)
+        canvas = Image.new('RGBA', (card_w * 3, card_h), (0, 0, 0, 0))
         
-        # If it's a single card that tiles with itself
         if len(pieces) == 1:
-            canvas.paste(base_img, (0, 0))
-            canvas.paste(base_img, (card_w, 0))
-            canvas.paste(base_img, (card_w * 2, 0))
+            # We pass the image twice during paste: once for the pixels, once to use its alpha channel as a mask
+            canvas.paste(base_img, (0, 0), base_img)
+            canvas.paste(base_img, (card_w, 0), base_img)
+            canvas.paste(base_img, (card_w * 2, 0), base_img)
         else:
-            # If multiple cards tile together endlessly, alternate them
             for i in range(3):
                 piece = pieces[i % len(pieces)]
                 resp = requests.get(piece['image_url'])
-                img = Image.open(BytesIO(resp.content))
-                canvas.paste(img, (i * card_w, 0))
+                img = Image.open(BytesIO(resp.content)).convert("RGBA")
+                canvas.paste(img, (i * card_w, 0), img)
                 
         return canvas
 
     # --- STANDARD GRID RENDERING ---
-    canvas = Image.new('RGB', (card_w * grid_w, card_h * grid_h), color='black')
+    canvas = Image.new('RGBA', (card_w * grid_w, card_h * grid_h), (0, 0, 0, 0))
     
     for piece in pieces:
         resp = requests.get(piece['image_url'])
-        img = Image.open(BytesIO(resp.content))
-        # Subtract 1 because positions are 1-indexed in the standard grids
+        img = Image.open(BytesIO(resp.content)).convert("RGBA")
         paste_x = (piece['position_x'] - 1) * card_w
         paste_y = (piece['position_y'] - 1) * card_h
-        canvas.paste(img, (paste_x, paste_y))
+        
+        canvas.paste(img, (paste_x, paste_y), img)
         
     return canvas
