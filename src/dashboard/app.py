@@ -75,17 +75,25 @@ def show_metadata_report(card):
     
     with tab_connect:
         st.markdown("**🧩 Physical Connection (Mural/Grid)**")
+        st.caption("ℹ️ *For infinitely recurring/tiling cards, set all grid and position values to 0.*")
         p_col1, p_col2 = st.columns([1.5, 1])
 
         with p_col1:
             phys_group = st.text_input("Grid Group Name:", value=card.get('phys_group') or "", placeholder="e.g., Mewtwo V-UNION", key=f"p_grp_{c_id}")
             
         with p_col2:
-            grid_w = st.number_input("Total Columns (Width):", min_value=1, max_value=5, value=int(card.get('grid_width') or 1), key=f"p_gw_{c_id}")
-            grid_h = st.number_input("Total Rows (Height):", min_value=1, max_value=5, value=int(card.get('grid_height') or 1), key=f"p_gh_{c_id}")
-            pos_x = st.number_input("My Column Position (X):", min_value=1, max_value=5, value=int(card.get('position_x') or 1), key=f"p_x_{c_id}")
-            pos_y = st.number_input("My Row Position (Y):", min_value=1, max_value=5, value=int(card.get('position_y') or 1), key=f"p_y_{c_id}")
+            # Safely handle 0 as a valid database value, while keeping 1 as the default for completely new entries
+            def_w = int(card.get('grid_width')) if card.get('grid_width') is not None else 1
+            def_h = int(card.get('grid_height')) if card.get('grid_height') is not None else 1
+            def_x = int(card.get('position_x')) if card.get('position_x') is not None else 1
+            def_y = int(card.get('position_y')) if card.get('position_y') is not None else 1
 
+            # min_value changed to 0
+            grid_w = st.number_input("Total Columns (Width):", min_value=0, max_value=5, value=def_w, key=f"p_gw_{c_id}")
+            grid_h = st.number_input("Total Rows (Height):", min_value=0, max_value=5, value=def_h, key=f"p_gh_{c_id}")
+            pos_x = st.number_input("My Column Position (X):", min_value=0, max_value=5, value=def_x, key=f"p_x_{c_id}")
+            pos_y = st.number_input("My Row Position (Y):", min_value=0, max_value=5, value=def_y, key=f"p_y_{c_id}")
+            
         st.divider()
         st.markdown("**📖 Narrative Connection (Storyline)**")
         n_col1, n_col2 = st.columns([1.5, 1])

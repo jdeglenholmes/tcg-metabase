@@ -124,6 +124,7 @@ def fetch_and_stitch_grid(engine, group_name):
         FROM fact_physical_connections p
         JOIN tcg_cards c ON p.card_id = c.card_id
         WHERE p.grid_group_name = :group_name
+        ORDER BY p.position_x ASC
     """)
     
     with engine.connect() as conn:
@@ -139,11 +140,33 @@ def fetch_and_stitch_grid(engine, group_name):
     base_img = Image.open(BytesIO(first_img_response.content))
     card_w, card_h = base_img.size
     
+    # --- INFINITE RECURRENCE HANDLER ---
+    if grid_w == 0 or grid_h == 0:
+        # Create a 1x3 canvas to demonstrate the infinite tiling
+        canvas = Image.new('RGB', (card_w * 3, card_h), color='black')
+        
+        # If it's a single card that tiles with itself
+        if len(pieces) == 1:
+            canvas.paste(base_img, (0, 0))
+            canvas.paste(base_img, (card_w, 0))
+            canvas.paste(base_img, (card_w * 2, 0))
+        else:
+            # If multiple cards tile together endlessly, alternate them
+            for i in range(3):
+                piece = pieces[i % len(pieces)]
+                resp = requests.get(piece['image_url'])
+                img = Image.open(BytesIO(resp.content))
+                canvas.paste(img, (i * card_w, 0))
+                
+        return canvas
+
+    # --- STANDARD GRID RENDERING ---
     canvas = Image.new('RGB', (card_w * grid_w, card_h * grid_h), color='black')
     
     for piece in pieces:
         resp = requests.get(piece['image_url'])
         img = Image.open(BytesIO(resp.content))
+        # Subtract 1 because positions are 1-indexed in the standard grids
         paste_x = (piece['position_x'] - 1) * card_w
         paste_y = (piece['position_y'] - 1) * card_h
         canvas.paste(img, (paste_x, paste_y))
