@@ -2,21 +2,21 @@ import sys
 import os
 import streamlit as st
 
-# Setup paths (Adjusted for app.py being in the root directory)
+# Setup paths
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 from src.dashboard.utils import (
-    get_engine, parse_json_array, fetch_card_batch, update_card_record
+    get_engine, parse_json_array, fetch_card_batch, 
+    update_card_record, fetch_and_stitch_grid
 )
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PokeCheckr", layout="wide")
 
-
 st.title("PokeCheckr")
-st.markdown("Enhance Local Pokemon TCG Metdata viewed in a Gallery-Style Layout")
+st.markdown("Enhance Local Pokémon TCG Metadata viewed in a Gallery-Style Layout")
 
 # --- DB CONNECTION---
 engine = get_engine()
@@ -48,60 +48,117 @@ with col3:
 def show_metadata_report(card):
     c_id = card['card_id']
     
-    col_img, col_meta = st.columns([1, 1.5])
+    # Structure the UI into tabs
+    tab_meta, tab_connect = st.tabs(["📝 Base Metadata", "🧩 Connections & Preview"])
     
-    with col_img:
-        st.image(card['image_url'], use_container_width=True)
-        st.caption(f"**Card ID:** `{c_id}`")
-        
-    with col_meta:
-        st.subheader(f"{card['name']}")
-        
-        st.text_input("Illustrator:", value=card.get('illustrator') or "", key=f"ill_{c_id}")
-        st.text_input("Rarity:", value=card.get('rarity') or "", key=f"rar_{c_id}")
-        
-        current_price = card.get('market_price')
-        st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
-        st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
-        
-        st.divider()
-        st.markdown("**Entity Tracking**")
-        st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"cameo_freq_{c_id}")
-        
-        current_cameos = [c for c in parse_json_array(card.get('cameo_pokemon')) if c is not None]
-        st.text_input("Cameo Pokémon (comma-separated):", value=", ".join(current_cameos), key=f"cameo_names_{c_id}", placeholder="e.g. Pikachu, Eevee")
-        
-        st.divider()
-        
-        # Simplified button rendering
-        if st.button("💾 Save Data", key=f"save_{c_id}", type="primary", use_container_width=True):
-            cameo_str = st.session_state[f"cameo_names_{c_id}"]
+    with tab_meta:
+        col_img, col_meta = st.columns([1, 1.5])
+        with col_img:
+            st.image(card['image_url'], use_container_width=True)
+            st.caption(f"**Card ID:** `{c_id}`")
             
-            update_data = {
-                "illustrator": st.session_state[f"ill_{c_id}"],
-                "rarity": st.session_state[f"rar_{c_id}"],
-                "price": st.session_state[f"price_{c_id}"],
-                "trainer": st.session_state[f"trainer_{c_id}"],
-                "cameo_freq": st.session_state[f"cameo_freq_{c_id}"],
-                "cameo_names": [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else []
-            }
+        with col_meta:
+            st.subheader(f"{card['name']}")
+            st.text_input("Illustrator:", value=card.get('illustrator') or "", key=f"ill_{c_id}")
+            st.text_input("Rarity:", value=card.get('rarity') or "", key=f"rar_{c_id}")
             
-            try:
-                update_card_record(engine, c_id, update_data)
-                for c in st.session_state['card_batch']:
-                    if c['card_id'] == c_id:
-                        c.update({
-                            'illustrator': update_data["illustrator"],
-                            'rarity': update_data["rarity"],
-                            'market_price': update_data["price"],
-                            'has_trainer': update_data["trainer"],
-                            'cameo_frequency': update_data["cameo_freq"],
-                            'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None
-                            })
-                        break
-                st.rerun()
-            except Exception as e:
-                st.error(f"Database Save Error: {e}")
+            current_price = card.get('market_price')
+            st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
+            st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
+            
+            st.divider()
+            st.markdown("**Entity Tracking**")
+            st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"cameo_freq_{c_id}")
+            
+            current_cameos = [c for c in parse_json_array(card.get('cameo_pokemon')) if c is not None]
+            st.text_input("Cameo Pokémon (comma-separated):", value=", ".join(current_cameos), key=f"cameo_names_{c_id}", placeholder="e.g. Pikachu, Eevee")
+    
+    with tab_connect:
+        st.markdown("**🧩 Physical Connection (Mural/Grid)**")
+        p_col1, p_col2 = st.columns([1.5, 1])
+
+        with p_col1:
+            phys_group = st.text_input("Grid Group Name:", value=card.get('phys_group') or "", placeholder="e.g., Mewtwo V-UNION", key=f"p_grp_{c_id}")
+            
+        with p_col2:
+            grid_w = st.number_input("Total Columns (Width):", min_value=1, max_value=5, value=int(card.get('grid_width') or 1), key=f"p_gw_{c_id}")
+            grid_h = st.number_input("Total Rows (Height):", min_value=1, max_value=5, value=int(card.get('grid_height') or 1), key=f"p_gh_{c_id}")
+            pos_x = st.number_input("My Column Position (X):", min_value=1, max_value=5, value=int(card.get('position_x') or 1), key=f"p_x_{c_id}")
+            pos_y = st.number_input("My Row Position (Y):", min_value=1, max_value=5, value=int(card.get('position_y') or 1), key=f"p_y_{c_id}")
+
+        st.divider()
+        st.markdown("**📖 Narrative Connection (Storyline)**")
+        n_col1, n_col2 = st.columns([1.5, 1])
+
+        with n_col1:
+            story_name = st.text_input("Story Name:", value=card.get('story_name') or "", placeholder="e.g., Charizard vs Venusaur Battle", key=f"n_st_{c_id}")
+            
+        with n_col2:
+            seq_order = st.number_input("Sequence Order:", min_value=1, value=int(card.get('sequence_order') or 1), key=f"n_seq_{c_id}")
+            
+            role_options = ["Start", "Middle", "End"]
+            current_role = card.get('narrative_role') or "Start"
+            role_idx = role_options.index(current_role) if current_role in role_options else 0
+            st.selectbox("Role in Story:", role_options, index=role_idx, key=f"n_role_{c_id}")
+
+        st.divider()
+        if phys_group:
+            st.markdown(f"**Live Preview: {phys_group}")
+            if st.button("🎨 Render Stitched Image", key=f"render_{c_id}"):
+                with st.spinner("Downloading and stitching assets..."):
+                    stitched_canvas = fetch_and_stitch_grid(engine, phys_group)
+                    if stitched_canvas:
+                        st.image(stitched_canvas, use_container_width=True)
+                    else:
+                        st.warning("No grid pieces found in database for this group.")
+
+    st.divider()
+    # Save button handles data from both tabs
+    if st.button("💾 Save All Data", key=f"save_{c_id}", type="primary", use_container_width=True):
+        cameo_str = st.session_state[f"cameo_names_{c_id}"]
+        
+        update_data = {
+            "illustrator": st.session_state[f"ill_{c_id}"],
+            "rarity": st.session_state[f"rar_{c_id}"],
+            "price": st.session_state[f"price_{c_id}"],
+            "trainer": st.session_state[f"trainer_{c_id}"],
+            "cameo_freq": st.session_state[f"cameo_freq_{c_id}"],
+            "cameo_names": [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else [],
+            "phys_group": st.session_state[f"p_grp_{c_id}"].strip(),
+            "grid_w": st.session_state[f"p_gw_{c_id}"],
+            "grid_h": st.session_state[f"p_gh_{c_id}"],
+            "pos_x": st.session_state[f"p_x_{c_id}"],
+            "pos_y": st.session_state[f"p_y_{c_id}"],
+            "story_name": st.session_state[f"n_st_{c_id}"].strip(),
+            "seq_order": st.session_state[f"n_seq_{c_id}"],
+            "narr_role": st.session_state[f"n_role_{c_id}"]
+        }
+        
+        try:
+            update_card_record(engine, c_id, update_data)
+            
+            for c in st.session_state['card_batch']:
+                if c['card_id'] == c_id:
+                    c.update({
+                        'illustrator': update_data["illustrator"],
+                        'rarity': update_data["rarity"],
+                        'market_price': update_data["price"],
+                        'has_trainer': update_data["trainer"],
+                        'cameo_frequency': update_data["cameo_freq"],
+                        'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None,
+                        'phys_group': update_data["phys_group"] if update_data["phys_group"] else None,
+                        'grid_width': update_data["grid_w"],
+                        'grid_height': update_data["grid_h"],
+                        'position_x': update_data["pos_x"],
+                        'position_y': update_data["pos_y"],
+                        'story_name': update_data["story_name"] if update_data["story_name"] else None,
+                        'sequence_order': update_data["seq_order"],
+                        'narrative_role': update_data["narr_role"]
+                    })
+                    break
+            st.rerun()
+        except Exception as e:
+            st.error(f"Database Save Error: {e}")
 
 # --- RENDER GALLERY ---
 st.divider()
@@ -115,24 +172,16 @@ else:
     for i, card in enumerate(cards):
         with cols[i % 4]:
             with st.container(border=True):
-                # 1. The Card Image
                 st.image(card['image_url'], use_container_width=True)
+                st.markdown(f"**")
                 
-                # 2. Native Streamlit Text Layout
-                st.markdown(f"**{card['name']}**")
-                
-                # Split the footer info into two native columns
                 info_col1, info_col2 = st.columns(2)
                 with info_col1:
-                    # Uses the new position_id from your SQL, falls back to card_id
                     display_id = card.get('position_id') or card.get('card_id')
                     st.caption(f"`{display_id}`")
-                
                 with info_col2:
-                    # Renders the set name in italics, aligned with Streamlit's native markdown
                     set_name = card.get('set_name') or "Unknown"
                     st.caption(f"*{set_name}*")
                 
-                # 3. The Native Inspect Button
                 if st.button("🔍 Inspect", key=f"inspect_{card['card_id']}", use_container_width=True):
                     show_metadata_report(card)
