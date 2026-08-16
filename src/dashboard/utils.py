@@ -136,18 +136,15 @@ def fetch_and_stitch_grid(engine, group_name):
     grid_w = pieces[0]['grid_width']
     grid_h = pieces[0]['grid_height']
     
-    # Download and force the base image into memory with an active Alpha channel (RGBA)
     first_img_response = requests.get(pieces[0]['image_url'])
     base_img = Image.open(BytesIO(first_img_response.content)).convert("RGBA")
     card_w, card_h = base_img.size
     
     # --- INFINITE RECURRENCE HANDLER ---
     if grid_w == 0 or grid_h == 0:
-        # Create an RGBA canvas (Transparent background)
         canvas = Image.new('RGBA', (card_w * 3, card_h), (0, 0, 0, 0))
         
         if len(pieces) == 1:
-            # We pass the image twice during paste: once for the pixels, once to use its alpha channel as a mask
             canvas.paste(base_img, (0, 0), base_img)
             canvas.paste(base_img, (card_w, 0), base_img)
             canvas.paste(base_img, (card_w * 2, 0), base_img)
@@ -158,6 +155,8 @@ def fetch_and_stitch_grid(engine, group_name):
                 img = Image.open(BytesIO(resp.content)).convert("RGBA")
                 canvas.paste(img, (i * card_w, 0), img)
                 
+        # Standardize the size (Bounds the image to a max 800px width / 600px height)
+        canvas.thumbnail((800, 600), Image.Resampling.LANCZOS)
         return canvas
 
     # --- STANDARD GRID RENDERING ---
@@ -171,4 +170,6 @@ def fetch_and_stitch_grid(engine, group_name):
         
         canvas.paste(img, (paste_x, paste_y), img)
         
+    # Standardize the size (Bounds the image to a max 800px width / 600px height)
+    canvas.thumbnail((800, 600), Image.Resampling.LANCZOS)
     return canvas

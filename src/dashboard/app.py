@@ -116,7 +116,7 @@ def show_metadata_report(card):
                 with st.spinner("Downloading and stitching assets..."):
                     stitched_canvas = fetch_and_stitch_grid(engine, phys_group)
                     if stitched_canvas:
-                        st.image(stitched_canvas, use_container_width=True)
+                        st.image(stitched_canvas)
                     else:
                         st.warning("No grid pieces found in database for this group.")
 
