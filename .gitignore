@@ -33,3 +33,5 @@ data/
 ./models
 src/ml/models/
 supabase_labels_backup.json
+
+./src/scripts/*

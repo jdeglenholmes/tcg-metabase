@@ -22,9 +22,20 @@ def parse_json_array(raw_val):
     except:
         return [str(raw_val).strip('[]"\' ')]
 
+# --- IMAGE ROTATION HELPER ---
+def fetch_and_rotate_image(image_url: str, rotation_angle: int = 0) -> Image.Image:
+    """Downloads an image from URL and applies clockwise rotation dynamically."""
+    response = requests.get(image_url)
+    img = Image.open(BytesIO(response.content)).convert("RGBA")
+    
+    if rotation_angle and rotation_angle > 0:
+        # PIL rotates counter-clockwise by default, so (360 - angle) rotates clockwise
+        img = img.rotate(360 - rotation_angle, expand=True)
+        
+    return img
+
 # --- DATABASE TRANSACTIONS ---
 def fetch_card_batch(engine, search, limit):
-    # Added LEFT JOINs for connections and fixed the position_id string cast
     base_query = """
         SELECT 
             c.card_id,
@@ -34,6 +45,7 @@ def fetch_card_batch(engine, search, limit):
             c.rarity, 
             c.market_price, 
             c.image_url, 
+            COALESCE(c.rotation_angle, 0) AS rotation_angle,
             c.has_trainer, 
             c.cameo_frequency, 
             c.cameo_pokemon,
@@ -75,6 +87,7 @@ def update_card_record(engine, card_id, data):
         UPDATE tcg_cards 
         SET illustrator = :illustrator, rarity = :rarity, market_price = :price,
             has_trainer = :trainer, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
+            rotation_angle = :rotation_angle,
             updated_at = CURRENT_TIMESTAMP
         WHERE card_id = :id
     """)
@@ -103,6 +116,7 @@ def update_card_record(engine, card_id, data):
             "trainer": data['trainer'],
             "cameo_freq": data['cameo_freq'],
             "cameo_names": json.dumps(data['cameo_names']) if data['cameo_names'] else None,
+            "rotation_angle": data.get('rotation_angle', 0),
             "id": card_id
         })
         
@@ -117,10 +131,11 @@ def update_card_record(engine, card_id, data):
             conn.execute(text("DELETE FROM fact_narrative_connections WHERE card_id = :id"), {"id": card_id})
 
 def fetch_and_stitch_grid(engine, group_name):
-    """Fetches all cards in a grid group and stitches them into a single image."""
+    """Fetches all cards in a grid group, applies any saved rotation, and stitches them into a single image."""
     query = text("""
         SELECT 
-            c.image_url, p.grid_width, p.grid_height, p.position_x, p.position_y
+            c.image_url, COALESCE(c.rotation_angle, 0) AS rotation_angle,
+            p.grid_width, p.grid_height, p.position_x, p.position_y
         FROM fact_physical_connections p
         JOIN tcg_cards c ON p.card_id = c.card_id
         WHERE p.grid_group_name = :group_name
@@ -136,8 +151,8 @@ def fetch_and_stitch_grid(engine, group_name):
     grid_w = pieces[0]['grid_width']
     grid_h = pieces[0]['grid_height']
     
-    first_img_response = requests.get(pieces[0]['image_url'])
-    base_img = Image.open(BytesIO(first_img_response.content)).convert("RGBA")
+    # Download and rotate first piece to calculate canvas dimensions
+    base_img = fetch_and_rotate_image(pieces[0]['image_url'], pieces[0]['rotation_angle'])
     card_w, card_h = base_img.size
     
     # --- INFINITE RECURRENCE HANDLER ---
@@ -151,11 +166,9 @@ def fetch_and_stitch_grid(engine, group_name):
         else:
             for i in range(3):
                 piece = pieces[i % len(pieces)]
-                resp = requests.get(piece['image_url'])
-                img = Image.open(BytesIO(resp.content)).convert("RGBA")
+                img = fetch_and_rotate_image(piece['image_url'], piece['rotation_angle'])
                 canvas.paste(img, (i * card_w, 0), img)
                 
-        # Standardize the size (Bounds the image to a max 800px width / 600px height)
         canvas.thumbnail((800, 600), Image.Resampling.LANCZOS)
         return canvas
 
@@ -163,13 +176,11 @@ def fetch_and_stitch_grid(engine, group_name):
     canvas = Image.new('RGBA', (card_w * grid_w, card_h * grid_h), (0, 0, 0, 0))
     
     for piece in pieces:
-        resp = requests.get(piece['image_url'])
-        img = Image.open(BytesIO(resp.content)).convert("RGBA")
+        img = fetch_and_rotate_image(piece['image_url'], piece['rotation_angle'])
         paste_x = (piece['position_x'] - 1) * card_w
         paste_y = (piece['position_y'] - 1) * card_h
         
         canvas.paste(img, (paste_x, paste_y), img)
         
-    # Standardize the size (Bounds the image to a max 800px width / 600px height)
     canvas.thumbnail((800, 600), Image.Resampling.LANCZOS)
     return canvas

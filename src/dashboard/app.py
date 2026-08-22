@@ -9,7 +9,7 @@ if root_dir not in sys.path:
 
 from src.dashboard.utils import (
     get_engine, parse_json_array, fetch_card_batch, 
-    update_card_record, fetch_and_stitch_grid
+    update_card_record, fetch_and_stitch_grid, fetch_and_rotate_image
 )
 
 # --- PAGE CONFIG ---
@@ -48,14 +48,27 @@ with col3:
 def show_metadata_report(card):
     c_id = card['card_id']
     
+    # Track rotation state in session_state for real-time UI updates inside the dialog
+    if f"rot_{c_id}" not in st.session_state:
+        st.session_state[f"rot_{c_id}"] = card.get('rotation_angle', 0)
+    
     # Structure the UI into tabs
     tab_meta, tab_connect = st.tabs(["📝 Base Metadata", "🧩 Connections & Preview"])
     
     with tab_meta:
         col_img, col_meta = st.columns([1, 1.5])
         with col_img:
-            st.image(card['image_url'], use_container_width=True)
-            st.caption(f"**Card ID:** `{c_id}`")
+            current_rot = st.session_state[f"rot_{c_id}"]
+            
+            # Fetch and display the rotated image dynamically
+            rotated_card_img = fetch_and_rotate_image(card['image_url'], current_rot)
+            st.image(rotated_card_img, use_container_width=True)
+            st.caption(f"**Card ID:** `{c_id}` | **Rotation:** `{current_rot}°`")
+            
+            # Rotation Button
+            if st.button("↻ Rotate 90° Right", key=f"btn_rot_{c_id}", use_container_width=True):
+                st.session_state[f"rot_{c_id}"] = (current_rot + 90) % 360
+                st.rerun()
             
         with col_meta:
             st.subheader(f"{card['name']}")
@@ -82,13 +95,11 @@ def show_metadata_report(card):
             phys_group = st.text_input("Grid Group Name:", value=card.get('phys_group') or "", placeholder="e.g., Mewtwo V-UNION", key=f"p_grp_{c_id}")
             
         with p_col2:
-            # Safely handle 0 as a valid database value, while keeping 1 as the default for completely new entries
             def_w = int(card.get('grid_width')) if card.get('grid_width') is not None else 1
             def_h = int(card.get('grid_height')) if card.get('grid_height') is not None else 1
             def_x = int(card.get('position_x')) if card.get('position_x') is not None else 1
             def_y = int(card.get('position_y')) if card.get('position_y') is not None else 1
 
-            # min_value changed to 0
             grid_w = st.number_input("Total Columns (Width):", min_value=0, max_value=5, value=def_w, key=f"p_gw_{c_id}")
             grid_h = st.number_input("Total Rows (Height):", min_value=0, max_value=5, value=def_h, key=f"p_gh_{c_id}")
             pos_x = st.number_input("My Column Position (X):", min_value=0, max_value=5, value=def_x, key=f"p_x_{c_id}")
@@ -111,9 +122,9 @@ def show_metadata_report(card):
 
         st.divider()
         if phys_group:
-            st.markdown(f"**Live Preview: {phys_group}")
+            st.markdown(f"**Live Preview: {phys_group}**")
             if st.button("🎨 Render Stitched Image", key=f"render_{c_id}"):
-                with st.spinner("Downloading and stitching assets..."):
+                with st.spinner("Downloading, rotating, and stitching assets..."):
                     stitched_canvas = fetch_and_stitch_grid(engine, phys_group)
                     if stitched_canvas:
                         st.image(stitched_canvas)
@@ -132,6 +143,7 @@ def show_metadata_report(card):
             "trainer": st.session_state[f"trainer_{c_id}"],
             "cameo_freq": st.session_state[f"cameo_freq_{c_id}"],
             "cameo_names": [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else [],
+            "rotation_angle": st.session_state[f"rot_{c_id}"],
             "phys_group": st.session_state[f"p_grp_{c_id}"].strip(),
             "grid_w": st.session_state[f"p_gw_{c_id}"],
             "grid_h": st.session_state[f"p_gh_{c_id}"],
@@ -154,6 +166,7 @@ def show_metadata_report(card):
                         'has_trainer': update_data["trainer"],
                         'cameo_frequency': update_data["cameo_freq"],
                         'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None,
+                        'rotation_angle': update_data["rotation_angle"],
                         'phys_group': update_data["phys_group"] if update_data["phys_group"] else None,
                         'grid_width': update_data["grid_w"],
                         'grid_height': update_data["grid_h"],
@@ -180,8 +193,10 @@ else:
     for i, card in enumerate(cards):
         with cols[i % 4]:
             with st.container(border=True):
-                st.image(card['image_url'], use_container_width=True)
-                st.markdown(f"**")
+                # Render gallery card image with rotation applied
+                card_rot = card.get('rotation_angle', 0)
+                display_img = fetch_and_rotate_image(card['image_url'], card_rot) if card_rot > 0 else card['image_url']
+                st.image(display_img, use_container_width=True)
                 
                 info_col1, info_col2 = st.columns(2)
                 with info_col1:
