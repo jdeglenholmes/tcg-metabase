@@ -67,7 +67,7 @@ def fetch_card_batch(engine, search, limit):
         LEFT JOIN 
             fact_narrative_connections n ON c.card_id = n.card_id
         WHERE 
-            REPLACE(c.supertype, 'é', 'e') = 'Pokemon' AND c.image_url IS NOT NULL
+            c.supertype != 'Item' AND c.image_url IS NOT NULL
     """
     params = {}
     
