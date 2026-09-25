@@ -37,7 +37,7 @@ def fetch_and_rotate_image(image_url: str, rotation_angle: int = 0) -> Image.Ima
 
 # --- DATABASE TRANSACTIONS ---
 def fetch_card_batch(engine, search, limit):
-    base_query = """
+    base_query = f"""
         SELECT 
             c.card_id,
             (SPLIT_PART(c.card_id, '-', 2) || '/' || s.total_cards::text) as position_id,
@@ -93,7 +93,7 @@ def update_card_record(engine, card_id, data):
         WHERE card_id = :id
     """)
     
-    phys_query = text("""
+    phys_query = text(f"""
         INSERT INTO {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} (card_id, grid_group_name, grid_width, grid_height, position_x, position_y)
         VALUES (:id, :phys_group, :grid_w, :grid_h, :pos_x, :pos_y)
         ON CONFLICT (card_id) DO UPDATE SET
@@ -101,7 +101,7 @@ def update_card_record(engine, card_id, data):
             grid_height = EXCLUDED.grid_height, position_x = EXCLUDED.position_x, position_y = EXCLUDED.position_y;
     """)
     
-    narr_query = text("""
+    narr_query = text(f"""
         INSERT INTO {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} (card_id, story_name, sequence_order, narrative_role)
         VALUES (:id, :story_name, :seq_order, :narr_role)
         ON CONFLICT (card_id) DO UPDATE SET
@@ -124,16 +124,16 @@ def update_card_record(engine, card_id, data):
         if data['phys_group']:
             conn.execute(phys_query, data | {"id": card_id})
         else:
-            conn.execute(text("DELETE FROM {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} WHERE card_id = :id"), {"id": card_id})
+            conn.execute(text(f"""DELETE FROM {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} WHERE card_id = :id"""), {"id": card_id})
             
         if data['story_name']:
             conn.execute(narr_query, data | {"id": card_id})
         else:
-            conn.execute(text("DELETE FROM {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} WHERE card_id = :id"), {"id": card_id})
+            conn.execute(text(f"""DELETE FROM {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} WHERE card_id = :id"""), {"id": card_id})
 
 def fetch_and_stitch_grid(engine, group_name):
     """Fetches all cards in a grid group, applies any saved rotation, and stitches them into a single image."""
-    query = text("""
+    query = text(f"""
         SELECT 
             c.image_url, COALESCE(c.rotation_angle, 0) AS rotation_angle,
             p.grid_width, p.grid_height, p.position_x, p.position_y
