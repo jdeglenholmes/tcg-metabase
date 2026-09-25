@@ -5,6 +5,7 @@ from io import BytesIO
 from PIL import Image
 import streamlit as st
 from sqlalchemy import text
+from src.database.tables import Tables
 from src.database.connection import get_engine as get_base_engine
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -59,13 +60,13 @@ def fetch_card_batch(engine, search, limit):
             n.sequence_order,
             n.narrative_role
         FROM 
-            tcg_cards c
+            {Tables.CARDS_CARD_DETAILS} c
         LEFT JOIN 
-            card_sets s ON c.set_id = s.set_id
+            {Tables.CARDS_SET_DEATILS} s ON c.set_id = s.set_id
         LEFT JOIN 
-            fact_physical_connections p ON c.card_id = p.card_id
+            {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p ON c.card_id = p.card_id
         LEFT JOIN 
-            fact_narrative_connections n ON c.card_id = n.card_id
+            {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} n ON c.card_id = n.card_id
         WHERE 
             c.supertype != 'Item' AND c.image_url IS NOT NULL
     """
@@ -93,7 +94,7 @@ def update_card_record(engine, card_id, data):
     """)
     
     phys_query = text("""
-        INSERT INTO fact_physical_connections (card_id, grid_group_name, grid_width, grid_height, position_x, position_y)
+        INSERT INTO {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} (card_id, grid_group_name, grid_width, grid_height, position_x, position_y)
         VALUES (:id, :phys_group, :grid_w, :grid_h, :pos_x, :pos_y)
         ON CONFLICT (card_id) DO UPDATE SET
             grid_group_name = EXCLUDED.grid_group_name, grid_width = EXCLUDED.grid_width,
@@ -101,7 +102,7 @@ def update_card_record(engine, card_id, data):
     """)
     
     narr_query = text("""
-        INSERT INTO fact_narrative_connections (card_id, story_name, sequence_order, narrative_role)
+        INSERT INTO {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} (card_id, story_name, sequence_order, narrative_role)
         VALUES (:id, :story_name, :seq_order, :narr_role)
         ON CONFLICT (card_id) DO UPDATE SET
             story_name = EXCLUDED.story_name, sequence_order = EXCLUDED.sequence_order,
@@ -123,12 +124,12 @@ def update_card_record(engine, card_id, data):
         if data['phys_group']:
             conn.execute(phys_query, data | {"id": card_id})
         else:
-            conn.execute(text("DELETE FROM fact_physical_connections WHERE card_id = :id"), {"id": card_id})
+            conn.execute(text("DELETE FROM {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} WHERE card_id = :id"), {"id": card_id})
             
         if data['story_name']:
             conn.execute(narr_query, data | {"id": card_id})
         else:
-            conn.execute(text("DELETE FROM fact_narrative_connections WHERE card_id = :id"), {"id": card_id})
+            conn.execute(text("DELETE FROM {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} WHERE card_id = :id"), {"id": card_id})
 
 def fetch_and_stitch_grid(engine, group_name):
     """Fetches all cards in a grid group, applies any saved rotation, and stitches them into a single image."""
@@ -136,8 +137,8 @@ def fetch_and_stitch_grid(engine, group_name):
         SELECT 
             c.image_url, COALESCE(c.rotation_angle, 0) AS rotation_angle,
             p.grid_width, p.grid_height, p.position_x, p.position_y
-        FROM fact_physical_connections p
-        JOIN tcg_cards c ON p.card_id = c.card_id
+        FROM {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p
+        JOIN {Tables.CARDS_CARD_DETAILS} c ON p.card_id = c.card_id
         WHERE p.grid_group_name = :group_name
         ORDER BY p.position_x ASC
     """)
