@@ -84,8 +84,8 @@ def fetch_card_batch(engine, search, limit):
         return [dict(c) for c in results]
 
 def update_card_record(engine, card_id, data):
-    base_query = text("""
-        UPDATE tcg_cards 
+    base_query = text(f"""
+        UPDATE {Tables.CARDS_CARD_DETAILS} 
         SET illustrator = :illustrator, rarity = :rarity, market_price = :price,
             has_trainer = :trainer, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
             rotation_angle = :rotation_angle,
