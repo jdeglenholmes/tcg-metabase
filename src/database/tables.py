@@ -2,7 +2,7 @@
 from enum import Enum
 
 class Tables(str, Enum):
-    CARDS_SET_DETAILS = "card_set_details"
+    CARDS_SET_DETAILS = "cards_set_details"
     CARDS_CARD_DETAILS = "cards_card_details"
     CARDS_CARD_CONNECTING_GRID_DIMENSIONS = "cards_card_connecting_grid_dimensions"
     CARDS_CARD_STORY_GRID_DIMENSIONS = "cards_card_story_grid_dimensions"
