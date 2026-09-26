@@ -62,7 +62,7 @@ def fetch_card_batch(engine, search, limit):
         FROM 
             {Tables.CARDS_CARD_DETAILS} c
         LEFT JOIN 
-            {Tables.CARDS_SET_DEATILS} s ON c.set_id = s.set_id
+            {Tables.CARDS_SET_DETAILS} s ON c.set_id = s.set_id
         LEFT JOIN 
             {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p ON c.card_id = p.card_id
         LEFT JOIN 
