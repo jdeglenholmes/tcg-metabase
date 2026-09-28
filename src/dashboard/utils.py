@@ -47,7 +47,8 @@ def fetch_card_batch(engine, search, limit):
             c.market_price, 
             c.image_url, 
             COALESCE(c.rotation_angle, 0) AS rotation_angle,
-            c.has_trainer, 
+            c.has_trainer,
+            c.is_shiny,
             c.cameo_frequency, 
             c.cameo_pokemon,
             s.name AS set_name,
@@ -88,7 +89,7 @@ def update_card_record(engine, card_id, data):
         UPDATE {Tables.CARDS_CARD_DETAILS} 
         SET illustrator = :illustrator, rarity = :rarity, market_price = :price,
             has_trainer = :trainer, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
-            rotation_angle = :rotation_angle,
+            is_shiny = :is_shiny, rotation_angle = :rotation_angle,
             updated_at = CURRENT_TIMESTAMP
         WHERE card_id = :id
     """)
@@ -116,6 +117,7 @@ def update_card_record(engine, card_id, data):
             "price": data['price'] if data['price'] > 0 else None,
             "trainer": data['trainer'],
             "cameo_freq": data['cameo_freq'],
+            "is_shiny": data['shiny'],
             "cameo_names": json.dumps(data['cameo_names']) if data['cameo_names'] else None,
             "rotation_angle": data.get('rotation_angle', 0),
             "id": card_id

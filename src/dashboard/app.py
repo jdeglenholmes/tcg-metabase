@@ -78,6 +78,7 @@ def show_metadata_report(card):
             current_price = card.get('market_price')
             st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
             st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
+            st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")
             
             st.divider()
             st.markdown("**Entity Tracking**")
@@ -143,6 +144,7 @@ def show_metadata_report(card):
             "trainer": st.session_state[f"trainer_{c_id}"],
             "cameo_freq": st.session_state[f"cameo_freq_{c_id}"],
             "cameo_names": [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else [],
+            "shiny": st.session_state[f"shiny_{c_id}"],
             "rotation_angle": st.session_state[f"rot_{c_id}"],
             "phys_group": st.session_state[f"p_grp_{c_id}"].strip(),
             "grid_w": st.session_state[f"p_gw_{c_id}"],
@@ -166,6 +168,7 @@ def show_metadata_report(card):
                         'has_trainer': update_data["trainer"],
                         'cameo_frequency': update_data["cameo_freq"],
                         'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None,
+                        'is_shiny': update_data["shiny"],
                         'rotation_angle': update_data["rotation_angle"],
                         'phys_group': update_data["phys_group"] if update_data["phys_group"] else None,
                         'grid_width': update_data["grid_w"],
