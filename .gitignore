@@ -9,10 +9,6 @@ env/
 __pycache__/
 *.pyc
 
-# --- Database & Config ---
-# Never push your real DB credentials
-.env
-
 # --- Streamlit / Logs ---
 .streamlit/
 logs/
@@ -32,6 +28,6 @@ data/
 ./*.pkl
 ./models
 src/ml/models/
-supabase_labels_backup.json
-
-./src/scripts/*
+ 
+# -- Backup Data --
+backups/*.dumps

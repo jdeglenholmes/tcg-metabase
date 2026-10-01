@@ -1,0 +1,47 @@
+name: Unified Database Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Runs at 2:00 AM UTC every day
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install System Dependencies (pg_dump)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install Python Dependencies
+        run: pip install psycopg2-binary python-dotenv
+
+      - name: Run Unified Backup Script
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python unified_backup.py
+
+      - name: Commit JSON to Repository
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: update JSON database snapshot"
+          file_pattern: 'backups/backup.json'
+
+      - name: Upload pg_dump as Artifact (Retained for 30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-pg-dump
+          path: backups/*.dump
+          retention-days: 30

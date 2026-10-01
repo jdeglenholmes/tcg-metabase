@@ -1,6 +1,10 @@
 import os
+import json
 import subprocess
-from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from datetime import datetime, date
+from uuid import UUID
 from dotenv import load_dotenv
 import logging
 
@@ -8,9 +12,16 @@ import logging
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
 logger = logging.getLogger('DB_Backup')
 
-def create_local_backup():
-    # 1. Load your Supabase DB URI from your .env file
-    # Example format: postgresql://postgres.[project_ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, UUID):
+        return str(obj)
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+def unified_backup():
+    # 1. Load Environment Variables
     load_dotenv()
     db_uri = os.getenv("DATABASE_URL")
     
@@ -18,36 +29,63 @@ def create_local_backup():
         logger.error("❌ DATABASE_URL not found in environment variables.")
         return
 
-    # 2. Define the backup directory
-    backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backups'))
+    # 2. Setup Directories and Filenames
+    backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'backups'))
     os.makedirs(backup_dir, exist_ok=True)
     
-    # 3. Generate a timestamped filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = os.path.join(backup_dir, f"tcg_wiki_backup_{timestamp}.dump")
-    
-    logger.info(f"🔄 Starting database backup to {backup_file}...")
-    
-    # 4. Construct the pg_dump command
-    # -F c: Custom format (compressed, required for pg_restore)
-    # --no-owner: Prevents role/permission conflicts if you restore to a different environment
+    pg_dump_file = os.path.join(backup_dir, f"tcg_db_{timestamp}.dump")
+    json_dump_file = os.path.join(backup_dir, "backup.json")
+
+    # --- PART 1: COMPRESSED PG_DUMP (For Disaster Recovery) ---
+    logger.info(f"🔄 Starting pg_dump backup to {pg_dump_file}...")
     command = [
         "pg_dump",
         db_uri,
         "-F", "c",
-        "-f", backup_file,
+        "-f", pg_dump_file,
         "--no-owner",
         "--no-privileges"
     ]
     
-    # 5. Execute the backup
     try:
         subprocess.run(command, check=True)
-        logger.info(f"✅ Backup completed successfully! File size: {os.path.getsize(backup_file) / (1024*1024):.2f} MB")
+        size_mb = os.path.getsize(pg_dump_file) / (1024 * 1024)
+        logger.info(f"✅ pg_dump completed! File size: {size_mb:.2f} MB")
     except subprocess.CalledProcessError as e:
-        logger.error(f"❌ Backup failed: {e}")
+        logger.error(f"❌ pg_dump failed: {e}")
+        return
     except FileNotFoundError:
-         logger.error("❌ 'pg_dump' command not found. Ensure PostgreSQL tools are installed and in your system PATH.")
+        logger.error("❌ 'pg_dump' command not found. Ensure PostgreSQL tools are installed.")
+        return
+
+    # --- PART 2: JSON DUMP (For Git Version Control & Diffs) ---
+    logger.info(f"🔄 Starting JSON data extraction to {json_dump_file}...")
+    try:
+        conn = psycopg2.connect(db_uri)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+        """)
+        tables = [row['table_name'] for row in cursor.fetchall()]
+        
+        database_dump = {}
+        for table in tables:
+            cursor.execute(f'SELECT * FROM public."{table}"')
+            database_dump[table] = cursor.fetchall()
+            
+        with open(json_dump_file, 'w') as json_file:
+            json.dump(database_dump, json_file, default=json_serial, indent=4)
+            
+        cursor.close()
+        conn.close()
+        logger.info(f"✅ JSON dump completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"❌ JSON dump failed: {e}")
 
 if __name__ == "__main__":
-    create_local_backup()
+    unified_backup()
