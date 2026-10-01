@@ -30,7 +30,7 @@ def unified_backup():
         return
 
     # 2. Setup Directories and Filenames
-    backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'backups'))
+    backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backups'))
     os.makedirs(backup_dir, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
