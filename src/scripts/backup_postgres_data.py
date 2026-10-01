@@ -3,6 +3,7 @@ import json
 import sys
 import subprocess
 import psycopg2
+from decimal import Decimal 
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, date
 from uuid import UUID
@@ -19,6 +20,8 @@ def json_serial(obj):
         return obj.isoformat()
     if isinstance(obj, UUID):
         return str(obj)
+    if isinstance(obj, Decimal):
+        return float(obj) 
     raise TypeError(f"Type {type(obj)} not serializable")
 
 def unified_backup():

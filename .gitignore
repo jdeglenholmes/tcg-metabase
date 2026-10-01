@@ -30,4 +30,4 @@ data/
 src/ml/models/
  
 # -- Backup Data --
-backups/*.dumps
+backups/*.dump
