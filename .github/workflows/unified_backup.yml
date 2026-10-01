@@ -31,7 +31,7 @@ jobs:
       - name: Run Unified Backup Script
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python unified_backup.py
+        run: python src/scripts/backup_postgres_data.py
 
       - name: Commit JSON to Repository
         uses: stefanzweifel/git-auto-commit-action@v4
