@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import subprocess
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -27,6 +28,7 @@ def unified_backup():
     
     if not db_uri:
         logger.error("❌ DATABASE_URL not found in environment variables.")
+        sys.exit(1)
         return
 
     # 2. Setup Directories and Filenames
@@ -54,10 +56,10 @@ def unified_backup():
         logger.info(f"✅ pg_dump completed! File size: {size_mb:.2f} MB")
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ pg_dump failed: {e}")
-        return
+        sys.exit(1)
     except FileNotFoundError:
         logger.error("❌ 'pg_dump' command not found. Ensure PostgreSQL tools are installed.")
-        return
+        sys.exit(1) 
 
     # --- PART 2: JSON DUMP (For Git Version Control & Diffs) ---
     logger.info(f"🔄 Starting JSON data extraction to {json_dump_file}...")
@@ -86,6 +88,7 @@ def unified_backup():
         
     except Exception as e:
         logger.error(f"❌ JSON dump failed: {e}")
-
+        sys.exit(1)
+        
 if __name__ == "__main__":
     unified_backup()
