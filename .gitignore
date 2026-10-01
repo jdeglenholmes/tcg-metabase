@@ -31,3 +31,4 @@ src/ml/models/
  
 # -- Backup Data --
 backups/*.dump
+backups/*.json

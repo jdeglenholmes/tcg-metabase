@@ -40,15 +40,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python src/scripts/backup_postgres_data.py
 
-      - name: Commit JSON to Repository
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "chore: update JSON database snapshot"
-          file_pattern: 'backups/backup.json'
-
-      - name: Upload pg_dump as Artifact (Retained for 30 days)
+      - name: Upload Backups as Artifacts (Retained for 30 days)
         uses: actions/upload-artifact@v4
         with:
-          name: supabase-pg-dump
-          path: backups/*.dump
+          name: supabase-database-backups
+          path: |
+            backups/*.dump
+            backups/*.json
           retention-days: 30
