@@ -7,7 +7,7 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1E1E1E?style=flat&logo=streamlit&logoColor=FF4B4B)](#)
 
 > [!NOTE]  
-> **Elevator Pitch:** A cloud-native PostgreSQL database and ETL pipeline designed to index, query, and visualize hyper-niche metadata within the Trading Card Game ecosystem. It captures complex relationships—like background cameos, vector-based color profiles, and multi-card narrative grids—that official and 3rd-party APIs fail to map.
+> **Project Description:** A cloud-native PostgreSQL database and ETL pipeline designed to index, query, and visualize hyper-niche Pokemon metadata within the Pokemon Trading Card Game ecosystem. It captures complex relationships—like background cameos, vector-based color profiles, and multi-card narrative grids—that official and 3rd-party APIs fail to map.
 
 ## 📑 Table of Contents
 - [Architecture & Pipeline](#-architecture--etl-pipeline)
@@ -48,8 +48,8 @@ erDiagram
         integer pokedex_number FK
         varchar illustrator
         jsonb variants
-        USER-DEFINED image_embedding "Computer Vision Artifact"
-        USER-DEFINED text_embedding "Computer Vision Artifact"
+        USER_DEFINED image_embedding "Computer Vision Artifact"
+        USER_DEFINED text_embedding "Computer Vision Artifact"
         jsonb dominant_colors
         float clip_text_alignment_score
         boolean is_shiny
