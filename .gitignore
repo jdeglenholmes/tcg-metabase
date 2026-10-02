@@ -25,8 +25,13 @@ data/
 .DS_Store
 .vscode/
 .idea/
-./*.pkl
-./models
+
+# ML Models & Large Binaries
+*.pkl
+*.pt
+*.onnx
+*.h5
+*.bin
 src/ml/models/
  
 # -- Backup Data --
