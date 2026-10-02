@@ -1,15 +1,15 @@
-# 🃏 TCG Metabase: Advanced Relational Database & Data Pipeline
+# ❖ TCG Metabase: Advanced Relational Database & Data Pipeline
 
-[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](#)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](#)
-[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](#)
-[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](#)
-[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=Streamlit&logoColor=white)](#)
+[![Python](https://img.shields.io/badge/Python-1E1E1E?style=flat&logo=python&logoColor=3776AB)](#)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-1E1E1E?style=flat&logo=postgresql&logoColor=4169E1)](#)
+[![Supabase](https://img.shields.io/badge/Supabase-1E1E1E?style=flat&logo=supabase&logoColor=3ECF8E)](#)
+[![GitHub Actions](https://img.shields.io/badge/Actions-1E1E1E?style=flat&logo=github-actions&logoColor=2088FF)](#)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1E1E1E?style=flat&logo=streamlit&logoColor=FF4B4B)](#)
 
 > [!NOTE]  
-> **Headline:** A cloud-native PostgreSQL database and ETL pipeline designed to index, query, and visualize hyper-niche metadata within the Trading Card Game ecosystem. It captures complex relationships—like background cameos, vector-based color profiles, and multi-card narrative grids—that official and 3rd-party APIs fail to map.
+> **Elevator Pitch:** A cloud-native PostgreSQL database and ETL pipeline designed to index, query, and visualize hyper-niche metadata within the Trading Card Game ecosystem. It captures complex relationships—like background cameos, vector-based color profiles, and multi-card narrative grids—that official and 3rd-party APIs fail to map.
 
-## 📖 Table of Contents
+## 📑 Table of Contents
 - [Architecture & Pipeline](#-architecture--etl-pipeline)
 - [Database Schema](#-database-schema--curated-metadata)
 - [Engineering Journey & Strategic Pivot](#-engineering-journey--the-strategic-pivot)
@@ -17,7 +17,7 @@
 
 ---
 
-## 🏗 Architecture & ETL Pipeline
+## ⚙️ Architecture & ETL Pipeline
 
 This project operates on a serverless, cloud-native architecture to ensure high availability and minimal maintenance overhead.
 
@@ -27,7 +27,7 @@ This project operates on a serverless, cloud-native architecture to ensure high 
 
 ---
 
-## 🗄 Database Schema & Curated Metadata
+## 🗃️ Database Schema & Curated Metadata
 
 The core engineering achievement of this platform is its highly normalized relational schema. It goes beyond basic text searches by modeling complex realities, such as cards that form larger physical images (`cards_card_story_grid_dimensions`) and junction tables for background character appearances (`fact_card_appearances`).
 
@@ -85,6 +85,7 @@ erDiagram
         integer position_x
         integer position_y
     }
+```
 
 <details>
 <summary><b>View Database Engineering Highlights</b> (Click to expand)</summary>
@@ -97,7 +98,7 @@ erDiagram
 
 ---
 
-## 🛤 Engineering Journey & The Strategic Pivot
+## 🧭 Engineering Journey & The Strategic Pivot
 
 > [!IMPORTANT]  
 > **The Lesson:** Knowing when to deprecate an overly complex, automated ML approach in favor of a robust, human-curated relational architecture.
@@ -113,7 +114,7 @@ This shifted the challenge to advanced data architecture—utilizing junction ta
 
 ---
 
-## ⚡ Frontend Application
+## 🖥️ Frontend Application
 
 To transform this relational dataset into a fast discovery tool, I engineered a responsive web application using **Streamlit**.
 
