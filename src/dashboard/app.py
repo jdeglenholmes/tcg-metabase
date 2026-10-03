@@ -13,10 +13,10 @@ from src.dashboard.utils import (
 )
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="PokeCheckr", layout="wide")
+st.set_page_config(page_title="TCG Metabase App", layout="wide")
 
-st.title("PokeCheckr")
-st.markdown("Enhance Local Pokémon TCG Metadata viewed in a Gallery-Style Layout")
+st.title("TCG Metabase App")
+st.markdown("Enhance Cloud-based TCG Metdata in a Gallery-Style Layout")
 
 # --- DB CONNECTION---
 engine = get_engine()
