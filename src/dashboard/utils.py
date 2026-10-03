@@ -17,12 +17,17 @@ def get_engine():
 # --- DATA PARSING HELPERS ---
 def parse_json_array(raw_val):
     if not raw_val: return []
+    
+    # Return immediately if SQLAlchemy already parsed the JSONB into a list
+    if isinstance(raw_val, list):
+        return raw_val
+        
     try:
         parsed = json.loads(raw_val)
         return parsed if isinstance(parsed, list) else [parsed]
     except:
         return [str(raw_val).strip('[]"\' ')]
-
+    
 # --- IMAGE ROTATION HELPER ---
 def fetch_and_rotate_image(image_url: str, rotation_angle: int = 0) -> Image.Image:
     """Downloads an image from URL and applies clockwise rotation dynamically."""

@@ -167,7 +167,7 @@ def show_metadata_report(card):
                         'market_price': update_data["price"],
                         'has_trainer': update_data["trainer"],
                         'cameo_frequency': update_data["cameo_freq"],
-                        'cameo_pokemon': str(update_data["cameo_names"]).replace("'", '"') if update_data["cameo_names"] else None,
+                        'cameo_pokemon': update_data["cameo_names"] if update_data["cameo_names"] else None,
                         'is_shiny': update_data["shiny"],
                         'rotation_angle': update_data["rotation_angle"],
                         'phys_group': update_data["phys_group"] if update_data["phys_group"] else None,
