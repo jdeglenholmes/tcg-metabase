@@ -116,6 +116,10 @@ This shifted the challenge to advanced data architecture—utilizing junction ta
 
 ## 🖥️ Frontend Application
 
+<p align="center">
+  <img src=".github/assets/demo.gif" width="100%" alt="TCG Metabase Streamlit UI Demo">
+</p>
+
 To transform this relational dataset into a fast discovery tool, I engineered a responsive web application using **Streamlit**.
 
 * **Multi-Variable Query Engine:** Translates user inputs (cameos, illustrators, grid formations) into parameterized SQL queries executed against Supabase.
