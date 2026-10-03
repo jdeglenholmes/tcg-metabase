@@ -1,7 +1,10 @@
 [theme]
-base = "light"
+base = "dark"
 primaryColor = "#EE1515"
-font = "sans serif"
+backgroundColor = "#0D1117"
+secondaryBackgroundColor = "#161B22"
+textColor = "#C9D1D9"
+font = "monospace"
 
 [client]
 showSidebarNavigation = false
