@@ -92,9 +92,12 @@ def show_metadata_report(card):
                 conf_pct = int(card['gemini_confidence'] * 100)
                 st.info(f"**Gemini Suggestion:** {guess_str} ({conf_pct}% confidence)\n\n_{card['gemini_reasoning']}_")
             
-            # If Gemini analyzed the card, use Gemini's suggestion as the UI default; otherwise use existing DB value.
-            default_cameo = bool(card.get('gemini_guess')) if 'gemini_guess' in card else bool(card.get('human_cameo'))
-            
+            # Preserve existing DB value if present; fall back to Gemini's guess if human_cameo is NULL
+            if card.get('human_cameo') is not None:
+                default_cameo = bool(card.get('human_cameo'))
+            else:
+                default_cameo = bool(card.get('gemini_guess', False))
+                
             st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
             st.checkbox("Human Cameo?", value=default_cameo, key=f"human_{c_id}") # ADDED
             st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")
