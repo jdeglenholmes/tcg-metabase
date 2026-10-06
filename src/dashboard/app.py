@@ -43,42 +43,49 @@ with col3:
             st.error(f"Fetch Error: {e}")
 
 # --- AI AUDIT CONTROL PANEL ---
+# --- AI AUDIT CONTROL PANEL ---
 with st.expander("🤖 Gemini Audit Settings & Modular Filters", expanded=True):
-    a_col1, a_col2, a_col3, a_col4 = st.columns([1.5, 1.5, 1, 1])
+    a_col1, a_col2, a_col3, a_col4 = st.columns([1.5, 1.2, 1.2, 1])
     
     with a_col1:
         audit_mode_opt = st.selectbox(
             "Audit Strategy:",
             ["Discrepancies Only", "Agreements Only", "All Candidates"],
-            index=0,
-            help="Discrepancies = Find cards where DB label != Gemini prediction."
+            index=0
         )
     
     with a_col2:
         db_status_opt = st.selectbox(
-            "Target DB Cameo Status:",
+            "Target DB Status:",
             ["TRUE", "FALSE", "NULL", "ALL"],
+            index=0
+        )
+
+    with a_col3:
+        exclude_upd_opt = st.selectbox(
+            "Skip Updated:",
+            ["Today", "Last 24 Hours", "None"],
             index=0,
-            help="Filter SQL query by current human_cameo state in database."
+            help="Prevents returning cards saved within this timeframe."
         )
         
-    with a_col3:
-        min_conf_opt = st.slider("Min Confidence:", 0.50, 1.00, 0.80, 0.05)
-        
     with a_col4:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("⚡ Run AI Audit", type="secondary", use_container_width=True):
-            with st.spinner("Executing modular SQL + Gemini Vision audit..."):
-                try:
-                    st.session_state['card_batch'] = fetch_cameo_guesses(
-                        engine=engine,
-                        limit=display_limit,
-                        db_cameo_status=db_status_opt,
-                        audit_mode=audit_mode_opt,
-                        min_confidence=min_conf_opt
-                    )
-                except Exception as e:
-                    st.error(f"Audit Error: {e}")
+        min_conf_opt = st.slider("Min Conf:", 0.50, 1.00, 0.80, 0.05)
+
+    st.divider()
+    if st.button("⚡ Run AI Audit", type="secondary", use_container_width=True):
+        with st.spinner("Executing SQL query and Gemini Vision audit..."):
+            try:
+                st.session_state['card_batch'] = fetch_cameo_guesses(
+                    engine=engine,
+                    limit=display_limit,
+                    db_cameo_status=db_status_opt,
+                    audit_mode=audit_mode_opt,
+                    min_confidence=min_conf_opt,
+                    exclude_updated=exclude_upd_opt
+                )
+            except Exception as e:
+                st.error(f"Audit Error: {e}")
 
 # --- MODAL REPORT VIEW ---
 @st.dialog("Full Metadata Report", width="large")
@@ -115,12 +122,24 @@ def show_metadata_report(card):
             current_price = card.get('market_price')
             st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
 
-            # --- GEMINI PREDICTION DISPLAY ---
+            # --- GEMINI PREDICTION DISPLAY (High-Confidence Discrepancies Only) ---
             if 'gemini_guess' in card:
-                guess_str = "👤 Human Detected" if card['gemini_guess'] else "🚫 No Human"
-                conf_pct = int(card['gemini_confidence'] * 100)
-                st.info(f"**Gemini Suggestion:** {guess_str} ({conf_pct}% confidence)\n\n_{card['gemini_reasoning']}_")
-            
+                conf = card.get('gemini_confidence', 0.0)
+                db_val = card.get('human_cameo')
+                gemini_val = card.get('gemini_guess')
+                
+                # Check for explicit disagreement with existing DB value
+                is_disagreement = (db_val is not None and bool(db_val) != bool(gemini_val))
+                
+                # Render prompt ONLY if confidence >= 80% AND there is a disagreement
+                if conf >= 0.80 and is_disagreement:
+                    guess_str = "👤 Human Detected" if gemini_val else "🚫 No Human"
+                    conf_pct = int(conf * 100)
+                    st.warning(
+                        f"⚠️ **Gemini Discrepancy Flag:** Suggested {guess_str} ({conf_pct}% confidence)\n\n"
+                        f"_{card['gemini_reasoning']}_"
+                    )
+
             # Preserve existing DB value if present; fall back to Gemini's guess if human_cameo is NULL
             if card.get('human_cameo') is not None:
                 default_cameo = bool(card.get('human_cameo'))

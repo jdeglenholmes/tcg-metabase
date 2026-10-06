@@ -56,23 +56,25 @@ def fetch_cameo_guesses(
     limit: int = 24, 
     db_cameo_status: str = "TRUE", 
     audit_mode: str = "Discrepancies Only", 
-    min_confidence: float = 0.80
+    min_confidence: float = 0.80,
+    exclude_updated: str = "Today"  # 'Today', 'Last 24 Hours', or 'None'
 ):
     """
-    Modular AI Audit Sampler.
-    
-    :param engine: SQLAlchemy engine
-    :param limit: Number of cards to display in the UI
-    :param db_cameo_status: 'TRUE', 'FALSE', 'NULL', or 'ALL'
-    :param audit_mode: 'Discrepancies Only', 'Agreements Only', or 'All Candidates'
-    :param min_confidence: Confidence cutoff (0.0 - 1.0)
+    Modular AI Audit Sampler with Date-Exclusion Filters.
     """
-    # 1. Build Dynamic SQL WHERE Clause
+    # 1. Base SQL WHERE Clauses
     where_clauses = [
         "REPLACE(c.supertype, 'é', 'e') ILIKE 'Pokemon'",
         "c.image_url IS NOT NULL"
     ]
     
+    # 2. Prevent re-fetching recently updated records
+    if exclude_updated == "Today":
+        where_clauses.append("(c.updated_at IS NULL OR c.updated_at < CURRENT_DATE)")
+    elif exclude_updated == "Last 24 Hours":
+        where_clauses.append("(c.updated_at IS NULL OR c.updated_at < CURRENT_TIMESTAMP - INTERVAL '24 hours')")
+
+    # 3. Target DB Status Filter
     if db_cameo_status == "TRUE":
         where_clauses.append("c.human_cameo IS TRUE")
     elif db_cameo_status == "FALSE":
@@ -101,7 +103,6 @@ def fetch_cameo_guesses(
         LIMIT :candidate_limit
     """)
     
-    # Fetch a candidate pool (up to 3x limit) to ensure we find enough audit matches
     candidate_limit = limit * 3
     with engine.connect() as conn:
         results = conn.execute(base_query, {"candidate_limit": candidate_limit}).mappings().fetchall()
@@ -109,7 +110,7 @@ def fetch_cameo_guesses(
 
     matched_cards = []
 
-    # 2. Evaluate via Gemini & Apply Audit Strategy Filters
+    # 4. Evaluate via Gemini Vision & Apply Strategy Filters
     for card in candidates:
         eval_res = analyze_image_for_human(card['image_url'])
         
@@ -120,25 +121,20 @@ def fetch_cameo_guesses(
         card['gemini_confidence'] = confidence
         card['gemini_reasoning'] = eval_res.reasoning
 
-        # Skip low confidence predictions if threshold specified
         if confidence < min_confidence:
             continue
 
         db_val = card.get('human_cameo')
 
-        # Filter according to requested Audit Strategy
         if audit_mode == "Discrepancies Only":
-            # Show if DB value contradicts Gemini prediction (or if DB value is NULL)
             if db_val is None or bool(db_val) != guess:
                 matched_cards.append(card)
         elif audit_mode == "Agreements Only":
-            # Show if DB value agrees with Gemini prediction
             if db_val is not None and bool(db_val) == guess:
                 matched_cards.append(card)
         else:  # "All Candidates"
             matched_cards.append(card)
 
-        # Stop once target display limit is met
         if len(matched_cards) >= limit:
             break
 
