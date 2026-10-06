@@ -35,21 +35,50 @@ with col2:
     display_limit = st.number_input("Limit:", 4, 100, 24, 4)
 
 with col3:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        if st.button("🔄 Fetch Batch", type="primary", use_container_width=True):
-            try:
-                st.session_state['card_batch'] = fetch_card_batch(engine, search_input, display_limit)
-            except Exception as e:
-                st.error(f"Fetch Error: {e}")
-    with btn_col2:
-        if st.button("🤖 Gemini Cameos", type="secondary", use_container_width=True):
-            with st.spinner("Analyzing artwork via Gemini 2.5 Flash..."):
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 Standard DB Fetch", type="primary", use_container_width=True):
+        try:
+            st.session_state['card_batch'] = fetch_card_batch(engine, search_input, display_limit)
+        except Exception as e:
+            st.error(f"Fetch Error: {e}")
+
+# --- AI AUDIT CONTROL PANEL ---
+with st.expander("🤖 Gemini Audit Settings & Modular Filters", expanded=True):
+    a_col1, a_col2, a_col3, a_col4 = st.columns([1.5, 1.5, 1, 1])
+    
+    with a_col1:
+        audit_mode_opt = st.selectbox(
+            "Audit Strategy:",
+            ["Discrepancies Only", "Agreements Only", "All Candidates"],
+            index=0,
+            help="Discrepancies = Find cards where DB label != Gemini prediction."
+        )
+    
+    with a_col2:
+        db_status_opt = st.selectbox(
+            "Target DB Cameo Status:",
+            ["TRUE", "FALSE", "NULL", "ALL"],
+            index=0,
+            help="Filter SQL query by current human_cameo state in database."
+        )
+        
+    with a_col3:
+        min_conf_opt = st.slider("Min Confidence:", 0.50, 1.00, 0.80, 0.05)
+        
+    with a_col4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("⚡ Run AI Audit", type="secondary", use_container_width=True):
+            with st.spinner("Executing modular SQL + Gemini Vision audit..."):
                 try:
-                    st.session_state['card_batch'] = fetch_cameo_guesses(engine, display_limit)
+                    st.session_state['card_batch'] = fetch_cameo_guesses(
+                        engine=engine,
+                        limit=display_limit,
+                        db_cameo_status=db_status_opt,
+                        audit_mode=audit_mode_opt,
+                        min_confidence=min_conf_opt
+                    )
                 except Exception as e:
-                    st.error(f"Gemini Fetch Error: {e}")
+                    st.error(f"Audit Error: {e}")
 
 # --- MODAL REPORT VIEW ---
 @st.dialog("Full Metadata Report", width="large")
@@ -97,7 +126,7 @@ def show_metadata_report(card):
                 default_cameo = bool(card.get('human_cameo'))
             else:
                 default_cameo = bool(card.get('gemini_guess', False))
-                
+
             st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
             st.checkbox("Human Cameo?", value=default_cameo, key=f"human_{c_id}") # ADDED
             st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")

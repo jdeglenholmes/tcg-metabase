@@ -51,12 +51,37 @@ def analyze_image_for_human(image_url: str) -> CameoDetectionResult:
     except Exception as e:
         return CameoDetectionResult(has_human=False, confidence=0.0, reasoning=f"Gemini API Error: {str(e)}")
 
-# --- UPDATED CAMEO GUESSES FETCH FUNCTION ---
-def fetch_cameo_guesses(engine, limit: int):
+def fetch_cameo_guesses(
+    engine, 
+    limit: int = 24, 
+    db_cameo_status: str = "TRUE", 
+    audit_mode: str = "Discrepancies Only", 
+    min_confidence: float = 0.80
+):
     """
-    Fetches cards where human_cameo IS NULL, evaluates artwork live via Gemini 2.5 Flash,
-    and attaches model predictions & reasoning for rapid UI verification.
+    Modular AI Audit Sampler.
+    
+    :param engine: SQLAlchemy engine
+    :param limit: Number of cards to display in the UI
+    :param db_cameo_status: 'TRUE', 'FALSE', 'NULL', or 'ALL'
+    :param audit_mode: 'Discrepancies Only', 'Agreements Only', or 'All Candidates'
+    :param min_confidence: Confidence cutoff (0.0 - 1.0)
     """
+    # 1. Build Dynamic SQL WHERE Clause
+    where_clauses = [
+        "REPLACE(c.supertype, 'é', 'e') ILIKE 'Pokemon'",
+        "c.image_url IS NOT NULL"
+    ]
+    
+    if db_cameo_status == "TRUE":
+        where_clauses.append("c.human_cameo IS TRUE")
+    elif db_cameo_status == "FALSE":
+        where_clauses.append("c.human_cameo IS FALSE")
+    elif db_cameo_status == "NULL":
+        where_clauses.append("c.human_cameo IS NULL")
+
+    where_sql = " AND ".join(where_clauses)
+
     base_query = text(f"""
         SELECT 
             c.card_id,
@@ -71,25 +96,53 @@ def fetch_cameo_guesses(engine, limit: int):
         LEFT JOIN {Tables.CARDS_SET_DETAILS} s ON c.set_id = s.set_id
         LEFT JOIN {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p ON c.card_id = p.card_id
         LEFT JOIN {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} n ON c.card_id = n.card_id
-        WHERE c.supertype = 'Pokemon'
-          AND c.image_url IS NOT NULL 
-          AND c.human_cameo IS True
+        WHERE {where_sql}
         ORDER BY RANDOM() 
-        LIMIT :limit
+        LIMIT :candidate_limit
     """)
     
+    # Fetch a candidate pool (up to 3x limit) to ensure we find enough audit matches
+    candidate_limit = limit * 3
     with engine.connect() as conn:
-        results = conn.execute(base_query, {"limit": limit}).mappings().fetchall()
-        cards = [dict(c) for c in results]
+        results = conn.execute(base_query, {"candidate_limit": candidate_limit}).mappings().fetchall()
+        candidates = [dict(c) for c in results]
 
-    # Run Gemini multimodal vision evaluation across fetched cards
-    for card in cards:
+    matched_cards = []
+
+    # 2. Evaluate via Gemini & Apply Audit Strategy Filters
+    for card in candidates:
         eval_res = analyze_image_for_human(card['image_url'])
-        card['gemini_guess'] = eval_res.has_human
-        card['gemini_confidence'] = eval_res.confidence
+        
+        guess = eval_res.has_human
+        confidence = eval_res.confidence
+        
+        card['gemini_guess'] = guess
+        card['gemini_confidence'] = confidence
         card['gemini_reasoning'] = eval_res.reasoning
 
-    return cards
+        # Skip low confidence predictions if threshold specified
+        if confidence < min_confidence:
+            continue
+
+        db_val = card.get('human_cameo')
+
+        # Filter according to requested Audit Strategy
+        if audit_mode == "Discrepancies Only":
+            # Show if DB value contradicts Gemini prediction (or if DB value is NULL)
+            if db_val is None or bool(db_val) != guess:
+                matched_cards.append(card)
+        elif audit_mode == "Agreements Only":
+            # Show if DB value agrees with Gemini prediction
+            if db_val is not None and bool(db_val) == guess:
+                matched_cards.append(card)
+        else:  # "All Candidates"
+            matched_cards.append(card)
+
+        # Stop once target display limit is met
+        if len(matched_cards) >= limit:
+            break
+
+    return matched_cards
 
 @st.cache_resource
 def get_engine():
