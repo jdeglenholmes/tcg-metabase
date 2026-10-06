@@ -71,9 +71,9 @@ def fetch_cameo_guesses(engine, limit: int):
         LEFT JOIN {Tables.CARDS_SET_DETAILS} s ON c.set_id = s.set_id
         LEFT JOIN {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p ON c.card_id = p.card_id
         LEFT JOIN {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} n ON c.card_id = n.card_id
-        WHERE c.supertype != 'Item' 
+        WHERE c.supertype = 'Pokemon'
           AND c.image_url IS NOT NULL 
-          AND c.human_cameo IS NOT NULL
+          AND c.human_cameo = True
         ORDER BY RANDOM() 
         LIMIT :limit
     """)
