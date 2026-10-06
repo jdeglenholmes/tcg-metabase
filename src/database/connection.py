@@ -28,6 +28,7 @@ def get_engine():
         pool_recycle=1800,    
         pool_pre_ping=True,   
         connect_args={
-            "options": "-c client_min_messages=warning"
+            "options": "-c client_min_messages=warning",
+            "prepare_threshold": None
         }
     )
