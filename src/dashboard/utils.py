@@ -5,10 +5,91 @@ from io import BytesIO
 from PIL import Image
 import streamlit as st
 from sqlalchemy import text
+from pydantic import BaseModel, Field
+from google import genai
 from src.database.tables import Tables
 from src.database.connection import get_engine as get_base_engine
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+
+# --- GEMINI CLIENT INITIALIZATION ---
+gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+# --- PYDANTIC SCHEMA FOR GEMINI MULTIMODAL DETECTION ---
+class CameoDetectionResult(BaseModel):
+    has_human: bool = Field(
+        description="True if artwork explicitly shows a human, person, trainer, human silhouette, or body part. False if artwork only features monsters/Pokémon, inanimate items, energy, or landscapes."
+    )
+    confidence: float = Field(description="Confidence score between 0.0 and 1.0")
+    reasoning: str = Field(description="Brief 1-sentence reason for judgment.")
+
+# --- GEMINI VISION INFERENCE HELPER ---
+def analyze_image_for_human(image_url: str) -> CameoDetectionResult:
+    """Downloads card image and passes bytes directly to Gemini 2.5 Flash Vision."""
+    try:
+        resp = requests.get(image_url, timeout=8)
+        if resp.status_code != 200:
+            return CameoDetectionResult(has_human=False, confidence=0.0, reasoning="Image fetch failed.")
+        
+        raw_image = Image.open(BytesIO(resp.content)).convert("RGB")
+        
+        prompt = (
+            "Analyze this Trading Card Game artwork carefully. "
+            "Determine if there is any human being, human trainer, person, human silhouette, or human cameo depicted in the artwork."
+        )
+        
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[raw_image, prompt],
+            config={
+                "temperature": 0.0,
+                "response_mime_type": "application/json",
+                "response_schema": CameoDetectionResult
+            }
+        )
+        return CameoDetectionResult.model_validate_json(response.text)
+    except Exception as e:
+        return CameoDetectionResult(has_human=False, confidence=0.0, reasoning=f"Gemini API Error: {str(e)}")
+
+# --- UPDATED CAMEO GUESSES FETCH FUNCTION ---
+def fetch_cameo_guesses(engine, limit: int):
+    """
+    Fetches cards where human_cameo IS NULL, evaluates artwork live via Gemini 2.5 Flash,
+    and attaches model predictions & reasoning for rapid UI verification.
+    """
+    base_query = text(f"""
+        SELECT 
+            c.card_id,
+            (SPLIT_PART(c.card_id, '-', 2) || '/' || s.total_cards::text) as position_id,
+            c.name, c.illustrator, c.rarity, c.market_price, c.image_url, 
+            COALESCE(c.rotation_angle, 0) AS rotation_angle,
+            c.is_trainer, c.human_cameo, c.is_shiny, c.cameo_frequency, c.cameo_pokemon,
+            s.name AS set_name,
+            p.grid_group_name AS phys_group, p.grid_width, p.grid_height, p.position_x, p.position_y,
+            n.story_name, n.sequence_order, n.narrative_role
+        FROM {Tables.CARDS_CARD_DETAILS} c
+        LEFT JOIN {Tables.CARDS_SET_DETAILS} s ON c.set_id = s.set_id
+        LEFT JOIN {Tables.CARDS_CARD_STORY_GRID_DIMENSIONS} p ON c.card_id = p.card_id
+        LEFT JOIN {Tables.CARDS_CARD_CONNECTING_GRID_DIMENSIONS} n ON c.card_id = n.card_id
+        WHERE c.supertype != 'Item' 
+          AND c.image_url IS NOT NULL 
+          AND c.human_cameo IS NULL
+        ORDER BY RANDOM() 
+        LIMIT :limit
+    """)
+    
+    with engine.connect() as conn:
+        results = conn.execute(base_query, {"limit": limit}).mappings().fetchall()
+        cards = [dict(c) for c in results]
+
+    # Run Gemini multimodal vision evaluation across fetched cards
+    for card in cards:
+        eval_res = analyze_image_for_human(card['image_url'])
+        card['gemini_guess'] = eval_res.has_human
+        card['gemini_confidence'] = eval_res.confidence
+        card['gemini_reasoning'] = eval_res.reasoning
+
+    return cards
 
 @st.cache_resource
 def get_engine():
@@ -52,7 +133,8 @@ def fetch_card_batch(engine, search, limit):
             c.market_price, 
             c.image_url, 
             COALESCE(c.rotation_angle, 0) AS rotation_angle,
-            c.has_trainer,
+            c.is_trainer,
+            c.human_cameo,
             c.is_shiny,
             c.cameo_frequency, 
             c.cameo_pokemon,
@@ -93,7 +175,7 @@ def update_card_record(engine, card_id, data):
     base_query = text(f"""
         UPDATE {Tables.CARDS_CARD_DETAILS} 
         SET illustrator = :illustrator, rarity = :rarity, market_price = :price,
-            has_trainer = :trainer, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
+            is_trainer = :trainer, human_cameo = :human_cameo, cameo_frequency = :cameo_freq, cameo_pokemon = :cameo_names,
             is_shiny = :is_shiny, rotation_angle = :rotation_angle,
             updated_at = CURRENT_TIMESTAMP
         WHERE card_id = :id
@@ -121,6 +203,7 @@ def update_card_record(engine, card_id, data):
             "rarity": data['rarity'] or None,
             "price": data['price'] if data['price'] > 0 else None,
             "trainer": data['trainer'],
+            "human_cameo": data['human_cameo'],
             "cameo_freq": data['cameo_freq'],
             "is_shiny": data['shiny'],
             "cameo_names": json.dumps(data['cameo_names']) if data['cameo_names'] else None,

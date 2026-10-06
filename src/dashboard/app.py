@@ -8,7 +8,7 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 from src.dashboard.utils import (
-    get_engine, parse_json_array, fetch_card_batch, 
+    get_engine, parse_json_array, fetch_card_batch, fetch_cameo_guesses,
     update_card_record, fetch_and_stitch_grid, fetch_and_rotate_image
 )
 
@@ -36,12 +36,20 @@ with col2:
 
 with col3:
     st.markdown("<br><br>", unsafe_allow_html=True)
-    if st.button("🔄 Fetch New Batch", type="primary", use_container_width=True):
-        try:
-            results = fetch_card_batch(engine, search_input, display_limit)
-            st.session_state['card_batch'] = results
-        except Exception as e:
-            st.error(f"Database Fetch Error: {e}")
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        if st.button("🔄 Fetch Batch", type="primary", use_container_width=True):
+            try:
+                st.session_state['card_batch'] = fetch_card_batch(engine, search_input, display_limit)
+            except Exception as e:
+                st.error(f"Fetch Error: {e}")
+    with btn_col2:
+        if st.button("🤖 Gemini Cameos", type="secondary", use_container_width=True):
+            with st.spinner("Analyzing artwork via Gemini 2.5 Flash..."):
+                try:
+                    st.session_state['card_batch'] = fetch_cameo_guesses(engine, display_limit)
+                except Exception as e:
+                    st.error(f"Gemini Fetch Error: {e}")
 
 # --- MODAL REPORT VIEW ---
 @st.dialog("Full Metadata Report", width="large")
@@ -77,9 +85,19 @@ def show_metadata_report(card):
             
             current_price = card.get('market_price')
             st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
-            st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
-            st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")
+
+            # --- GEMINI PREDICTION DISPLAY ---
+            if 'gemini_guess' in card:
+                guess_str = "👤 Human Detected" if card['gemini_guess'] else "🚫 No Human"
+                conf_pct = int(card['gemini_confidence'] * 100)
+                st.info(f"**Gemini Suggestion:** {guess_str} ({conf_pct}% confidence)\n\n_{card['gemini_reasoning']}_")
             
+            # Default checkbox value to Gemini's guess if human_cameo is currently NULL
+            default_cameo = card['gemini_guess'] if ('gemini_guess' in card and card.get('human_cameo') is None) else bool(card.get('human_cameo'))
+            
+            st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
+            st.checkbox("Human Cameo?", value=default_cameo, key=f"human_{c_id}") # ADDED
+            st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")
             st.divider()
             st.markdown("**Entity Tracking**")
             st.number_input("Cameo Count:", value=int(card.get('cameo_frequency') or 0), min_value=0, key=f"cameo_freq_{c_id}")
@@ -89,7 +107,7 @@ def show_metadata_report(card):
     
     with tab_connect:
         st.markdown("**🧩 Physical Connection (Mural/Grid)**")
-        st.caption("ℹ️ *For infinitely recurring/tiling cards, set all grid and position values to 0.*")
+        st.caption("ℹ️️ *For infinitely recurring/tiling cards, set all grid and position values to 0.*")
         p_col1, p_col2 = st.columns([1.5, 1])
 
         with p_col1:
@@ -142,6 +160,7 @@ def show_metadata_report(card):
             "rarity": st.session_state[f"rar_{c_id}"],
             "price": st.session_state[f"price_{c_id}"],
             "trainer": st.session_state[f"trainer_{c_id}"],
+            "human_cameo": st.session_state[f"human_{c_id}"], # ADDED
             "cameo_freq": st.session_state[f"cameo_freq_{c_id}"],
             "cameo_names": [c.strip() for c in cameo_str.split(",")] if cameo_str.strip() else [],
             "shiny": st.session_state[f"shiny_{c_id}"],
@@ -165,7 +184,8 @@ def show_metadata_report(card):
                         'illustrator': update_data["illustrator"],
                         'rarity': update_data["rarity"],
                         'market_price': update_data["price"],
-                        'has_trainer': update_data["trainer"],
+                        'is_trainer': update_data["trainer"],
+                        'human_cameo': update_data["human_cameo"],
                         'cameo_frequency': update_data["cameo_freq"],
                         'cameo_pokemon': update_data["cameo_names"] if update_data["cameo_names"] else None,
                         'is_shiny': update_data["shiny"],
