@@ -15,8 +15,6 @@ logs/
 app_log.txt
 
 # --- ML / Data Files ---
-# Do not push the database dumps or the CSV ground truth files 
-# if they contain private or very large data
 *.db
 *.sqlite
 data/

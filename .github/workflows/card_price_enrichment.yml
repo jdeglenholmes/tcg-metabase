@@ -1,4 +1,4 @@
-name: TCG Card Price Sync
+name: TCG Card Price Sync and Refresh Marts
 
 on:
   schedule:
@@ -21,7 +21,9 @@ jobs:
       - name: Install Dependencies
         run: pip install requests sqlalchemy psycopg2-binary python-dotenv
 
-      - name: Run Sync
+      - name: Run Sync and Refresh Marts
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python scripts/card_price_enrichment.py
+             python scripts/refresh_marts.py
+
