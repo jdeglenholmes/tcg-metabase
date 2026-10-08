@@ -1,0 +1,27 @@
+name: TCG Card Price Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Midnight UTC every Sunday
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install requests sqlalchemy psycopg2-binary python-dotenv
+
+      - name: Run Sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/card_price_enrichment.py

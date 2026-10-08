@@ -1,0 +1,77 @@
+BEGIN;
+
+-- Workflow 1: 
+-- Create or update table (Price History)
+CREATE TABLE IF NOT EXISTS public.card_price_history (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    card_id VARCHAR(50) NOT NULL,
+    market_price NUMERIC,
+    recorded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create and execute the function to update prices when market_price changes in cards_card_details 
+CREATE OR REPLACE FUNCTION log_card_price_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') OR (TG_OP = 'UPDATE' AND OLD.market_price IS DISTINCT FROM NEW.market_price) THEN
+        INSERT INTO public.card_price_history (card_id, market_price, recorded_at)
+        VALUES (NEW.card_id, NEW.market_price, NOW());
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_log_card_price ON public.cards_card_details;
+CREATE TRIGGER trigger_log_card_price
+AFTER INSERT OR UPDATE OF market_price ON public.cards_card_details
+FOR EACH ROW
+EXECUTE FUNCTION log_card_price_change();
+
+-- Workflow 2:
+-- Drop old and create new economics mart which provides pricing trends
+DROP MATERIALIZED VIEW IF EXISTS analytics.mart_card_economics;
+
+-- Create the Economics Mart
+CREATE MATERIALIZED VIEW analytics.mart_card_economics AS
+WITH RankedPrices AS (
+    -- This CTE finds the absolute latest price and the All-Time High for each card
+    SELECT 
+        card_id,
+        market_price,
+        recorded_at,
+        ROW_NUMBER() OVER (PARTITION BY card_id ORDER BY recorded_at DESC) as rn_latest,
+        MAX(market_price) OVER (PARTITION BY card_id) as all_time_high
+    FROM public.card_price_history
+),
+Price30DaysAgo AS (
+    -- This CTE fetches what the price was roughly 30 days ago for the trend line
+    SELECT DISTINCT ON (card_id) 
+        card_id,
+        market_price as price_30d
+    FROM public.card_price_history
+    WHERE recorded_at <= NOW() - INTERVAL '30 days'
+    ORDER BY card_id, recorded_at DESC
+)
+SELECT 
+    r.card_id,
+    r.market_price AS current_market_price,
+    r.all_time_high,
+    COALESCE(p30.price_30d, r.market_price) AS market_price_30d_ago,
+    
+    -- Calculate the 30-day percentage change
+    CASE 
+        WHEN p30.price_30d > 0 
+        THEN ROUND(((r.market_price - p30.price_30d) / p30.price_30d) * 100, 2)
+        ELSE 0.00 
+    END AS price_trend_30d_pct,
+    
+    r.recorded_at AS last_updated_at
+
+FROM RankedPrices r
+LEFT JOIN Price30DaysAgo p30 ON r.card_id = p30.card_id
+WHERE r.rn_latest = 1; -- Only keep the most recent row per card
+
+-- Grant Permissions
+GRANT SELECT ON analytics.mart_card_economics TO service_role;
+
+COMMIT;
