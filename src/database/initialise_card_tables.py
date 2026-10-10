@@ -65,7 +65,7 @@ def initialize_base_tables(engine):
             created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             image_url TEXT,
-            has_trainer BOOLEAN,
+            is_trainer BOOLEAN,
             -- Note: 'USER-DEFINED' replaced with TEXT. Change to 'vector(1536)' if using pgvector.
             image_embedding TEXT, 
             enrichment_status VARCHAR DEFAULT 'pending',
