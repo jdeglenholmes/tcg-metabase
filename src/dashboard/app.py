@@ -77,7 +77,7 @@ def show_metadata_report(card):
             
             current_price = card.get('market_price')
             st.number_input("Price ($):", value=float(current_price) if current_price else 0.00, step=0.50, key=f"price_{c_id}")
-            st.checkbox("Is Trainer?", value=bool(card.get('has_trainer')), key=f"trainer_{c_id}")
+            st.checkbox("Is Trainer?", value=bool(card.get('is_trainer')), key=f"trainer_{c_id}")
             st.checkbox("Is Shiny?", value=bool(card.get('is_shiny')), key=f"shiny_{c_id}")
             
             st.divider()
@@ -165,7 +165,7 @@ def show_metadata_report(card):
                         'illustrator': update_data["illustrator"],
                         'rarity': update_data["rarity"],
                         'market_price': update_data["price"],
-                        'has_trainer': update_data["trainer"],
+                        'is_trainer': update_data["trainer"],
                         'cameo_frequency': update_data["cameo_freq"],
                         'cameo_pokemon': update_data["cameo_names"] if update_data["cameo_names"] else None,
                         'is_shiny': update_data["shiny"],
